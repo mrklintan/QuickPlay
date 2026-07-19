@@ -1,0 +1,562 @@
+using System.Collections.ObjectModel;
+using QuickPlay.Audio;
+using QuickPlay.Core;
+using QuickPlay.Waveform;
+using QuickPlay.WinUI.Services;
+using Microsoft.UI;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Shapes;
+using Windows.ApplicationModel.DataTransfer;
+using Windows.Storage;
+using Windows.Storage.Pickers;
+using Windows.System;
+using WinRT.Interop;
+
+namespace QuickPlay.WinUI;
+
+public sealed partial class MainWindow : Window
+{
+    private readonly TrackCatalog _catalog = new();
+    private readonly TrackNavigator _navigator = new();
+    private readonly FolderNavigator _folderNavigator = new();
+    private readonly ITrackMetadataReader _metadataReader = new TagLibTrackMetadataReader();
+    private readonly ISettingsStore _settingsStore;
+    private readonly ApplicationSettings _settings;
+    private readonly ShortcutManager _shortcutManager;
+    private readonly ClipboardFileService _clipboardService = new();
+    private readonly ShellFileService _shellFileService = new();
+    private readonly AudioPlayer _player;
+    private readonly PlaybackController _playback;
+    private readonly IWaveformAnalyzer _waveformAnalyzer = new BassWaveformAnalyzer();
+    private readonly DispatcherTimer _positionTimer = new() { Interval = TimeSpan.FromMilliseconds(200) };
+    private CancellationTokenSource? _waveformCancellation;
+    private CancellationTokenSource? _metadataCancellation;
+    private WaveformData? _waveform;
+    private Line? _playheadLine;
+    private string? _currentFolderPath;
+    private bool _updatingSelection;
+    private bool _shortcutDialogOpen;
+
+    public ObservableCollection<TrackListItemViewModel> Tracks { get; } = [];
+
+    public MainWindow()
+    {
+        InitializeComponent();
+        RootGrid.AddHandler(UIElement.PreviewKeyDownEvent, new KeyEventHandler(OnKeyDown), true);
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var settingsPath = System.IO.Path.Combine(localAppData, "QuickPlay", "settings.json");
+        MigrateLegacySettings(
+            System.IO.Path.Combine(localAppData, "DJPlayer", "settings.json"),
+            settingsPath);
+        _settingsStore = new JsonSettingsStore(settingsPath);
+        _settings = _settingsStore.Load();
+        _shortcutManager = new ShortcutManager(_settings);
+        _player = new AudioPlayer(new BassAudioBackend());
+        _playback = new PlaybackController(_navigator, _player, _settings);
+        _positionTimer.Tick += OnPositionTimerTick;
+        Closed += OnClosed;
+    }
+
+    private static void MigrateLegacySettings(string legacyPath, string newPath)
+    {
+        if (File.Exists(newPath) || !File.Exists(legacyPath)) return;
+        try
+        {
+            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(newPath)!);
+            File.Copy(legacyPath, newPath);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        AuditionPositionBox.Text = FormatPosition(_settings.AuditionStartPosition);
+        PlayPauseButton.Content = "Play";
+        _positionTimer.Start();
+        RootGrid.Focus(FocusState.Programmatic);
+    }
+
+    private async void OnChooseFolder(object sender, RoutedEventArgs e)
+    {
+        var picker = new FolderPicker();
+        picker.FileTypeFilter.Add("*");
+        InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+        var folder = await picker.PickSingleFolderAsync();
+        if (folder is not null) OpenFolder(folder.Path);
+    }
+
+    private void OnDragOver(object sender, DragEventArgs e)
+    {
+        if (!e.DataView.Contains(StandardDataFormats.StorageItems)) return;
+        e.AcceptedOperation = DataPackageOperation.Copy;
+        e.DragUIOverride.Caption = "Open this music folder";
+        e.DragUIOverride.IsCaptionVisible = true;
+    }
+
+    private async void OnDrop(object sender, DragEventArgs e)
+    {
+        try
+        {
+            if (!e.DataView.Contains(StandardDataFormats.StorageItems)) return;
+            var items = await e.DataView.GetStorageItemsAsync();
+            var folder = items.OfType<StorageFolder>().FirstOrDefault();
+            if (folder is null)
+            {
+                StatusText.Text = "Drop a folder, not individual files.";
+                return;
+            }
+            OpenFolder(folder.Path);
+        }
+        catch (Exception exception)
+        {
+            StatusText.Text = exception.Message;
+        }
+    }
+
+    private void OnPrevious(object sender, RoutedEventArgs e) => ExecuteCommand(ApplicationCommand.PreviousTrack);
+    private void OnNext(object sender, RoutedEventArgs e) => ExecuteCommand(ApplicationCommand.NextTrack);
+    private void OnPlayPause(object sender, RoutedEventArgs e) => ExecuteCommand(ApplicationCommand.PlayPause);
+
+    private void OnKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (_shortcutDialogOpen || IsEditableFocus() || KeyboardGestureFactory.IsModifier(e.Key)) return;
+        var command = _shortcutManager.Resolve(KeyboardGestureFactory.Create(e.Key));
+        if (command is null) return;
+        e.Handled = true;
+        ExecuteCommand(command.Value);
+    }
+
+    private void OnTrackSelected(object sender, Microsoft.UI.Xaml.Controls.SelectionChangedEventArgs e)
+    {
+        if (_updatingSelection || TrackList.SelectedIndex < 0) return;
+        ExecutePlayback(() => _playback.SelectAndPlay(TrackList.SelectedIndex));
+    }
+
+    private void OnSaveSettings(object sender, RoutedEventArgs e)
+    {
+        if (!TryParsePosition(AuditionPositionBox.Text, out var position))
+        {
+            SettingsMessage.Text = "Use mm:ss (seconds 00–59).";
+            return;
+        }
+        _settings.AuditionStartPosition = position;
+        _settingsStore.Save(_settings);
+        AuditionPositionBox.Text = FormatPosition(position);
+        SettingsMessage.Text = "Saved";
+        RootGrid.Focus(FocusState.Programmatic);
+    }
+
+    private async void OnShortcutSettings(object sender, RoutedEventArgs e)
+    {
+        var dialog = new ShortcutSettingsDialog(_settings, WindowNative.GetWindowHandle(this))
+        {
+            XamlRoot = RootGrid.XamlRoot
+        };
+        _shortcutDialogOpen = true;
+        try
+        {
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+            dialog.ApplyTo(_settings);
+            _settingsStore.Save(_settings);
+            SettingsMessage.Text = "Shortcuts saved";
+            RootGrid.Focus(FocusState.Programmatic);
+        }
+        finally
+        {
+            _shortcutDialogOpen = false;
+        }
+    }
+
+    private async void PlayAndPresent(TimeSpan? startPosition)
+    {
+        if (startPosition is null || _navigator.Current is null) return;
+        var item = FindItem(_navigator.Current);
+        _updatingSelection = true;
+        TrackList.SelectedItem = item;
+        if (item is not null) TrackList.ScrollIntoView(item);
+        _updatingSelection = false;
+        UpdateNowPlaying(item);
+        PlayPauseButton.Content = "Pause";
+        StatusText.Text = $"Playing {_navigator.Current.DisplayName} from {FormatPosition(startPosition.Value)}";
+        UpdateTimeDisplay();
+
+        _waveformCancellation?.Cancel();
+        _waveformCancellation?.Dispose();
+        _waveformCancellation = new CancellationTokenSource();
+        try
+        {
+            _waveform = await _waveformAnalyzer.AnalyzeAsync(_navigator.Current.FilePath, 300, _waveformCancellation.Token);
+            DrawWaveform();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception exception)
+        {
+            StatusText.Text = $"Playback started; waveform unavailable: {exception.Message}";
+        }
+    }
+
+    private void OnWaveformPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (_playback.Duration <= TimeSpan.Zero || WaveformCanvas.ActualWidth <= 0) return;
+        var point = e.GetCurrentPoint(WaveformCanvas).Position;
+        var position = _playback.SeekToFraction(Math.Clamp(point.X / WaveformCanvas.ActualWidth, 0, 1));
+        if (position is not null)
+        {
+            PlayPauseButton.Content = "Pause";
+            StatusText.Text = $"Playing from {FormatPosition(position.Value)}";
+            UpdateTimeDisplay();
+        }
+        e.Handled = true;
+    }
+
+    private void OnWaveformSizeChanged(object sender, SizeChangedEventArgs e) => DrawWaveform();
+
+    private void DrawWaveform()
+    {
+        WaveformCanvas.Children.Clear();
+        var width = Math.Max(1, WaveformCanvas.ActualWidth);
+        var height = Math.Max(1, WaveformCanvas.ActualHeight);
+        if (_waveform is not null && _waveform.Peaks.Count > 0)
+        {
+            var center = height / 2;
+            var points = new PointCollection();
+            for (var index = 0; index < _waveform.Peaks.Count; index++)
+            {
+                var x = index * width / Math.Max(1, _waveform.Peaks.Count - 1);
+                points.Add(new Windows.Foundation.Point(x, center - (_waveform.Peaks[index] * center)));
+            }
+            for (var index = _waveform.Peaks.Count - 1; index >= 0; index--)
+            {
+                var x = index * width / Math.Max(1, _waveform.Peaks.Count - 1);
+                points.Add(new Windows.Foundation.Point(x, center + (_waveform.Peaks[index] * center)));
+            }
+            WaveformCanvas.Children.Add(new Polygon
+            {
+                Points = points,
+                Fill = new SolidColorBrush(ColorHelper.FromArgb(255, 0, 153, 255))
+            });
+        }
+        _playheadLine = new Line
+        {
+            Y1 = 0,
+            Y2 = height,
+            Stroke = new SolidColorBrush(Colors.White),
+            StrokeThickness = 2
+        };
+        WaveformCanvas.Children.Add(_playheadLine);
+        UpdatePlayhead();
+    }
+
+    private void OpenFolder(string folderPath)
+    {
+        try
+        {
+            _player.Stop();
+            _metadataCancellation?.Cancel();
+            _metadataCancellation?.Dispose();
+            _metadataCancellation = new CancellationTokenSource();
+            _currentFolderPath = System.IO.Path.GetFullPath(System.IO.Path.TrimEndingDirectorySeparator(folderPath));
+            FolderNameText.Text = System.IO.Path.GetFileName(_currentFolderPath);
+            _waveform = null;
+            DrawWaveform();
+            var tracks = _catalog.LoadFolder(_currentFolderPath);
+            _navigator.SetTracks(tracks);
+            Tracks.Clear();
+            foreach (var track in tracks) Tracks.Add(new TrackListItemViewModel(track));
+            if (tracks.Count == 0)
+            {
+                ResetNowPlaying();
+                StatusText.Text = "No supported audio files were found in that folder.";
+                return;
+            }
+            StatusText.Text = $"{tracks.Count} tracks found. Loading metadata…";
+            ExecutePlayback(_playback.PlayCurrent);
+            _ = LoadMetadataAsync(Tracks.ToArray(), _metadataCancellation.Token);
+        }
+        catch (Exception exception)
+        {
+            StatusText.Text = exception.Message;
+        }
+    }
+
+    private async Task LoadMetadataAsync(IReadOnlyList<TrackListItemViewModel> items, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var current = _navigator.Current;
+            var ordered = items.OrderByDescending(item => ReferenceEquals(item.Track, current));
+            foreach (var item in ordered)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var metadata = await _metadataReader.ReadAsync(item.Track.FilePath, cancellationToken);
+                item.ApplyMetadata(metadata);
+                if (ReferenceEquals(item.Track, _navigator.Current)) UpdateNowPlaying(item);
+            }
+            StatusText.Text = $"{items.Count} tracks ready.";
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async void ExecuteCommand(ApplicationCommand command)
+    {
+        switch (command)
+        {
+            case ApplicationCommand.PlayPause:
+                TogglePlayPause();
+                break;
+            case ApplicationCommand.PreviousTrack:
+                ExecutePlayback(_playback.MovePreviousAndPlay);
+                break;
+            case ApplicationCommand.NextTrack:
+                ExecutePlayback(_playback.MoveNextAndPlay);
+                break;
+            case ApplicationCommand.PreviousFolder:
+                NavigateSiblingFolder(next: false);
+                break;
+            case ApplicationCommand.NextFolder:
+                NavigateSiblingFolder(next: true);
+                break;
+            case ApplicationCommand.SeekBackwardShort:
+                SeekAndPresent(TimeSpan.FromSeconds(-_settings.ShortSeekSeconds));
+                break;
+            case ApplicationCommand.SeekForwardShort:
+                SeekAndPresent(TimeSpan.FromSeconds(_settings.ShortSeekSeconds));
+                break;
+            case ApplicationCommand.SeekBackwardLong:
+                SeekAndPresent(TimeSpan.FromSeconds(-_settings.LongSeekSeconds));
+                break;
+            case ApplicationCommand.SeekForwardLong:
+                SeekAndPresent(TimeSpan.FromSeconds(_settings.LongSeekSeconds));
+                break;
+            case ApplicationCommand.CopyCurrentTrack:
+                await CopyCurrentTrackAsync();
+                break;
+            case ApplicationCommand.DeleteCurrentTrack:
+                DeleteCurrentTrack();
+                break;
+        }
+    }
+
+    private async Task CopyCurrentTrackAsync()
+    {
+        var track = _playback.CurrentTrack;
+        if (track is null)
+        {
+            StatusText.Text = "No active track to copy.";
+            return;
+        }
+        try
+        {
+            await _clipboardService.CopyFileAsync(track.FilePath);
+            StatusText.Text = $"Copied {System.IO.Path.GetFileName(track.FilePath)} to the clipboard.";
+        }
+        catch (Exception exception)
+        {
+            StatusText.Text = $"Could not copy track: {exception.Message}";
+        }
+    }
+
+    private void DeleteCurrentTrack()
+    {
+        var track = _playback.CurrentTrack;
+        if (track is null)
+        {
+            StatusText.Text = "No active track to delete.";
+            return;
+        }
+
+        var position = _playback.Position;
+        var wasPlaying = _playback.IsPlaying;
+        var item = FindItem(track);
+        _waveformCancellation?.Cancel();
+        _player.Unload();
+
+        bool deleted;
+        try
+        {
+            deleted = _shellFileService.MoveToRecycleBinWithConfirmation(track.FilePath);
+        }
+        catch (Exception exception)
+        {
+            RestoreTrackAfterCancelledDelete(track, position, wasPlaying);
+            StatusText.Text = $"Could not delete track: {exception.Message}";
+            return;
+        }
+
+        if (!deleted)
+        {
+            RestoreTrackAfterCancelledDelete(track, position, wasPlaying);
+            StatusText.Text = "Delete cancelled.";
+            return;
+        }
+
+        _metadataCancellation?.Cancel();
+        _navigator.RemoveCurrent();
+        if (item is not null) Tracks.Remove(item);
+        if (_navigator.Current is null)
+        {
+            _waveform = null;
+            DrawWaveform();
+            ResetNowPlaying();
+            UpdateTimeDisplay();
+            StatusText.Text = "Track moved to the Recycle Bin. The folder is now empty.";
+            return;
+        }
+
+        StatusText.Text = "Track moved to the Recycle Bin.";
+        ExecutePlayback(_playback.PlayCurrent);
+        _metadataCancellation?.Dispose();
+        _metadataCancellation = new CancellationTokenSource();
+        _ = LoadMetadataAsync(Tracks.ToArray(), _metadataCancellation.Token);
+    }
+
+    private void RestoreTrackAfterCancelledDelete(Track track, TimeSpan position, bool wasPlaying)
+    {
+        var restoredPosition = _player.Play(track, position);
+        PlayAndPresent(restoredPosition);
+        if (wasPlaying) return;
+        _player.TogglePause();
+        PlayPauseButton.Content = "Play";
+    }
+
+    private void TogglePlayPause()
+    {
+        try
+        {
+            var isPlaying = _playback.TogglePause();
+            if (isPlaying is null)
+            {
+                StatusText.Text = "Open a folder first.";
+                return;
+            }
+            PlayPauseButton.Content = isPlaying.Value ? "Pause" : "Play";
+            StatusText.Text = isPlaying.Value ? "Playback resumed." : "Playback paused.";
+        }
+        catch (Exception exception)
+        {
+            StatusText.Text = exception.Message;
+        }
+    }
+
+    private void NavigateSiblingFolder(bool next)
+    {
+        if (_currentFolderPath is null) return;
+        try
+        {
+            var folder = next
+                ? _folderNavigator.MoveNext(_currentFolderPath)
+                : _folderNavigator.MovePrevious(_currentFolderPath);
+            if (folder is not null) OpenFolder(folder);
+        }
+        catch (Exception exception)
+        {
+            StatusText.Text = exception.Message;
+        }
+    }
+
+    private void ExecutePlayback(Func<TimeSpan?> action)
+    {
+        try { PlayAndPresent(action()); }
+        catch (Exception exception) { StatusText.Text = exception.Message; }
+    }
+
+    private void SeekAndPresent(TimeSpan offset)
+    {
+        try
+        {
+            var position = _playback.SeekBy(offset);
+            if (position is null) return;
+            PlayPauseButton.Content = "Pause";
+            StatusText.Text = $"Playing from {FormatPosition(position.Value)}";
+            UpdateTimeDisplay();
+        }
+        catch (Exception exception)
+        {
+            StatusText.Text = exception.Message;
+        }
+    }
+
+    private void UpdateNowPlaying(TrackListItemViewModel? item)
+    {
+        if (item is null) return;
+        NowPlayingTitleText.Text = item.Title;
+        NowPlayingArtistText.Text = string.IsNullOrWhiteSpace(item.Artist) ? "Unknown artist" : item.Artist;
+        NowPlayingBpmText.Text = string.IsNullOrWhiteSpace(item.Bpm) ? "BPM —" : $"BPM {item.Bpm}";
+        NowPlayingKeyText.Text = string.IsNullOrWhiteSpace(item.InitialKey) ? "Key —" : $"Key {item.InitialKey}";
+        CurrentFileNameText.Text = item.FileName;
+    }
+
+    private void ResetNowPlaying()
+    {
+        NowPlayingTitleText.Text = "Nothing playing";
+        NowPlayingArtistText.Text = "—";
+        NowPlayingBpmText.Text = "BPM —";
+        NowPlayingKeyText.Text = "Key —";
+        CurrentFileNameText.Text = "—";
+        PlayPauseButton.Content = "Play";
+    }
+
+    private TrackListItemViewModel? FindItem(Track track) =>
+        Tracks.FirstOrDefault(item => ReferenceEquals(item.Track, track));
+
+    private void OnPositionTimerTick(object? sender, object e) => UpdateTimeDisplay();
+
+    private void UpdateTimeDisplay()
+    {
+        CurrentTimeText.Text = FormatPosition(_playback.Position);
+        DurationText.Text = FormatPosition(_playback.Duration);
+        UpdatePlayhead();
+    }
+
+    private void UpdatePlayhead()
+    {
+        if (_playheadLine is null || _playback.Duration <= TimeSpan.Zero) return;
+        var fraction = Math.Clamp(_playback.Position.TotalSeconds / _playback.Duration.TotalSeconds, 0, 1);
+        var x = fraction * Math.Max(1, WaveformCanvas.ActualWidth);
+        _playheadLine.X1 = x;
+        _playheadLine.X2 = x;
+        _playheadLine.Y2 = Math.Max(1, WaveformCanvas.ActualHeight);
+    }
+
+    private bool IsEditableFocus()
+    {
+        var current = FocusManager.GetFocusedElement(RootGrid.XamlRoot) as DependencyObject;
+        while (current is not null)
+        {
+            if (current is TextBox or RichEditBox or PasswordBox or AutoSuggestBox or NumberBox or ComboBox)
+                return true;
+            current = VisualTreeHelper.GetParent(current);
+        }
+        return false;
+    }
+
+    private void OnClosed(object sender, WindowEventArgs args)
+    {
+        _positionTimer.Stop();
+        _metadataCancellation?.Cancel();
+        _metadataCancellation?.Dispose();
+        _waveformCancellation?.Cancel();
+        _waveformCancellation?.Dispose();
+        _player.Dispose();
+    }
+
+    private static string FormatPosition(TimeSpan position) =>
+        $"{(int)position.TotalMinutes:00}:{position.Seconds:00}";
+
+    private static bool TryParsePosition(string text, out TimeSpan position)
+    {
+        position = TimeSpan.Zero;
+        var parts = text.Trim().Split(':');
+        if (parts.Length != 2 ||
+            !int.TryParse(parts[0], out var minutes) ||
+            !int.TryParse(parts[1], out var seconds) ||
+            minutes < 0 || seconds is < 0 or > 59)
+            return false;
+        position = TimeSpan.FromMinutes(minutes) + TimeSpan.FromSeconds(seconds);
+        return true;
+    }
+}

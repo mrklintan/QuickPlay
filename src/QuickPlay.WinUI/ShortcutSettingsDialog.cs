@@ -1,0 +1,272 @@
+using QuickPlay.Core;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using System.Runtime.InteropServices;
+
+namespace QuickPlay.WinUI;
+
+public sealed class ShortcutSettingsDialog
+{
+    private readonly ContentDialog _dialog = new();
+    private readonly nint _ownerWindowHandle;
+    private readonly Dictionary<ApplicationCommand, ShortcutGesture> _shortcuts = [];
+    private readonly Dictionary<ApplicationCommand, TextBlock> _gestureLabels = [];
+    private readonly NumberBox _shortSeekBox = new()
+    {
+        Header = "Arrow seek (seconds)",
+        Minimum = 1,
+        Maximum = 300,
+        SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact
+    };
+    private readonly NumberBox _longSeekBox = new()
+    {
+        Header = "Shift + Arrow seek (seconds)",
+        Minimum = 1,
+        Maximum = 600,
+        SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact
+    };
+    private readonly TextBlock _captureMessage = new()
+    {
+        Text = "Select an action, then press its new shortcut.",
+        TextWrapping = TextWrapping.Wrap
+    };
+    private readonly TextBlock _warningText = new()
+    {
+        Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.OrangeRed),
+        TextWrapping = TextWrapping.Wrap,
+        VerticalAlignment = VerticalAlignment.Center
+    };
+
+    private ApplicationCommand? _capturingCommand;
+
+    public ShortcutSettingsDialog(ApplicationSettings settings, nint ownerWindowHandle)
+    {
+        _ownerWindowHandle = ownerWindowHandle;
+        _dialog.Title = "Keyboard shortcuts";
+        _dialog.PrimaryButtonText = "Save";
+        _dialog.SecondaryButtonText = "Cancel";
+        _dialog.DefaultButton = ContentDialogButton.Primary;
+        _dialog.PrimaryButtonClick += OnPrimaryButtonClick;
+        _dialog.PreviewKeyDown += OnPreviewKeyDown;
+
+        var defaults = ShortcutDefaults.Create();
+        foreach (var command in Enum.GetValues<ApplicationCommand>())
+        {
+            _shortcuts[command] = settings.Shortcuts.TryGetValue(command, out var gesture)
+                ? gesture
+                : defaults[command];
+        }
+
+        _shortSeekBox.Value = settings.ShortSeekSeconds;
+        _longSeekBox.Value = settings.LongSeekSeconds;
+        _dialog.Content = BuildContent();
+    }
+
+    public XamlRoot? XamlRoot
+    {
+        get => _dialog.XamlRoot;
+        set => _dialog.XamlRoot = value;
+    }
+
+    public async Task<ContentDialogResult> ShowAsync() => await _dialog.ShowAsync();
+
+    public void ApplyTo(ApplicationSettings settings)
+    {
+        settings.ShortSeekSeconds = _shortSeekBox.Value;
+        settings.LongSeekSeconds = _longSeekBox.Value;
+        settings.Shortcuts = new Dictionary<ApplicationCommand, ShortcutGesture>(_shortcuts);
+    }
+
+    private UIElement BuildContent()
+    {
+        var layout = new Grid
+        {
+            MinWidth = 500,
+            RowSpacing = 12
+        };
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(210) });
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var introduction = new TextBlock
+        {
+            Text = "Choose an action and press the key combination you want to use.",
+            TextWrapping = TextWrapping.Wrap
+        };
+        layout.Children.Add(introduction);
+
+        var commandList = new StackPanel { Spacing = 4 };
+        foreach (var command in Enum.GetValues<ApplicationCommand>())
+        {
+            commandList.Children.Add(CreateCommandButton(command));
+        }
+
+        var scrollViewer = new ScrollViewer
+        {
+            Content = commandList,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollMode = ScrollMode.Auto
+        };
+        Grid.SetRow(scrollViewer, 1);
+        layout.Children.Add(scrollViewer);
+
+        Grid.SetRow(_captureMessage, 2);
+        layout.Children.Add(_captureMessage);
+
+        var seekGrid = new Grid { ColumnSpacing = 12 };
+        seekGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        seekGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        seekGrid.Children.Add(_shortSeekBox);
+        Grid.SetColumn(_longSeekBox, 1);
+        seekGrid.Children.Add(_longSeekBox);
+        Grid.SetRow(seekGrid, 3);
+        layout.Children.Add(seekGrid);
+
+        var footer = new Grid { ColumnSpacing = 12 };
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var resetButton = new Button { Content = "Reset to defaults" };
+        resetButton.Click += OnResetDefaults;
+        footer.Children.Add(resetButton);
+        Grid.SetColumn(_warningText, 1);
+        footer.Children.Add(_warningText);
+        Grid.SetRow(footer, 4);
+        layout.Children.Add(footer);
+
+        return layout;
+    }
+
+    private Button CreateCommandButton(ApplicationCommand command)
+    {
+        var row = new Grid { ColumnSpacing = 16 };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(180) });
+
+        row.Children.Add(new TextBlock
+        {
+            Text = ShortcutDefaults.Label(command),
+            VerticalAlignment = VerticalAlignment.Center
+        });
+
+        var gestureLabel = new TextBlock
+        {
+            Text = _shortcuts[command].DisplayText,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        _gestureLabels[command] = gestureLabel;
+        Grid.SetColumn(gestureLabel, 1);
+        row.Children.Add(gestureLabel);
+
+        var button = new Button
+        {
+            Content = row,
+            Tag = command,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Padding = new Thickness(12, 8, 12, 8)
+        };
+        button.Click += OnCommandClicked;
+        return button;
+    }
+
+    private void OnCommandClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: ApplicationCommand command }) return;
+
+        _capturingCommand = command;
+        _warningText.Text = string.Empty;
+        _captureMessage.Text = $"Press the new shortcut for {ShortcutDefaults.Label(command)}. Press Esc to cancel.";
+    }
+
+    private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (_capturingCommand is not ApplicationCommand command) return;
+        if (KeyboardGestureFactory.IsModifier(e.Key)) return;
+
+        if (e.Key == Windows.System.VirtualKey.Escape)
+        {
+            _capturingCommand = null;
+            _captureMessage.Text = "Shortcut change cancelled.";
+            e.Handled = true;
+            return;
+        }
+
+        var gesture = KeyboardGestureFactory.Create(e.Key);
+        var duplicate = _shortcuts.FirstOrDefault(pair => pair.Key != command && pair.Value == gesture);
+        if (!duplicate.Equals(default(KeyValuePair<ApplicationCommand, ShortcutGesture>)))
+        {
+            var answer = MessageBox(
+                _ownerWindowHandle,
+                $"{gesture.DisplayText} is assigned to {ShortcutDefaults.Label(duplicate.Key)}.\n\n" +
+                $"Move it to {ShortcutDefaults.Label(command)} instead? The previous action will become Unassigned.",
+                "Replace shortcut?",
+                MessageBoxYesNo | MessageBoxIconQuestion | MessageBoxDefaultButton2);
+            if (answer != MessageBoxResultYes)
+            {
+                _warningText.Text = "Shortcut was not changed.";
+                _captureMessage.Text = "Press another shortcut, or Esc to cancel.";
+                e.Handled = true;
+                return;
+            }
+
+            _shortcuts[duplicate.Key] = ShortcutGesture.Unassigned;
+            _gestureLabels[duplicate.Key].Text = ShortcutGesture.Unassigned.DisplayText;
+        }
+
+        _shortcuts[command] = gesture;
+        _gestureLabels[command].Text = gesture.DisplayText;
+        _capturingCommand = null;
+        _warningText.Text = string.Empty;
+        _captureMessage.Text = $"{ShortcutDefaults.Label(command)}: {gesture.DisplayText}";
+        e.Handled = true;
+    }
+
+    private void OnResetDefaults(object sender, RoutedEventArgs e)
+    {
+        var defaults = ShortcutDefaults.Create();
+        foreach (var command in Enum.GetValues<ApplicationCommand>())
+        {
+            _shortcuts[command] = defaults[command];
+            _gestureLabels[command].Text = defaults[command].DisplayText;
+        }
+
+        _shortSeekBox.Value = 5;
+        _longSeekBox.Value = 30;
+        _capturingCommand = null;
+        _warningText.Text = string.Empty;
+        _captureMessage.Text = "Defaults restored. Select Save to apply them.";
+    }
+
+    private void OnPrimaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
+    {
+        var duplicate = _shortcuts
+            .Where(pair => pair.Value.IsAssigned)
+            .GroupBy(pair => pair.Value)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicate is not null)
+        {
+            _warningText.Text = $"{duplicate.Key.DisplayText} is assigned more than once.";
+            args.Cancel = true;
+            return;
+        }
+
+        if (double.IsNaN(_shortSeekBox.Value) || double.IsNaN(_longSeekBox.Value) ||
+            _shortSeekBox.Value <= 0 || _longSeekBox.Value <= 0)
+        {
+            _warningText.Text = "Seek distances must be positive.";
+            args.Cancel = true;
+        }
+    }
+
+    private const uint MessageBoxYesNo = 0x00000004;
+    private const uint MessageBoxIconQuestion = 0x00000020;
+    private const uint MessageBoxDefaultButton2 = 0x00000100;
+    private const int MessageBoxResultYes = 6;
+
+    [DllImport("user32.dll", EntryPoint = "MessageBoxW", CharSet = CharSet.Unicode)]
+    private static extern int MessageBox(nint windowHandle, string text, string caption, uint type);
+}
