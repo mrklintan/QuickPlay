@@ -29,8 +29,9 @@ public sealed class TagLibTrackMetadataReader : ITrackMetadataReader
                 Genre: tag.JoinedGenres ?? string.Empty,
                 Comment: tag.Comment ?? string.Empty,
                 Bpm: tag.BeatsPerMinute == 0 ? null : tag.BeatsPerMinute,
-                Grouping: grouping,
                 InitialKey: ReadInitialKey(mediaFile),
+                Energy: ReadEnergy(mediaFile),
+                Grouping: grouping,
                 Duration: mediaFile.Properties.Duration,
                 FileName: fallback.FileName,
                 FullPath: filePath);
@@ -72,6 +73,33 @@ public sealed class TagLibTrackMetadataReader : ITrackMetadataReader
         }
         return string.Empty;
     }
+
+    private static string ReadEnergy(TagLib.File mediaFile)
+    {
+        if (mediaFile.GetTag(TagLib.TagTypes.Id3v2, false) is TagLib.Id3v2.Tag id3)
+        {
+            var energy = id3.GetFrames<TagLib.Id3v2.UserTextInformationFrame>()
+                .FirstOrDefault(frame => IsEnergyField(frame.Description))
+                ?.Text?.FirstOrDefault();
+            if (!string.IsNullOrWhiteSpace(energy)) return energy.Trim();
+        }
+
+        if (mediaFile.GetTag(TagLib.TagTypes.Xiph, false) is TagLib.Ogg.XiphComment xiph)
+        {
+            foreach (var fieldName in new[] { "ENERGYLEVEL", "ENERGY LEVEL", "ENERGY" })
+            {
+                var energy = xiph.GetField(fieldName).FirstOrDefault();
+                if (!string.IsNullOrWhiteSpace(energy)) return energy.Trim();
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static bool IsEnergyField(string? description) =>
+        description?.Replace(" ", string.Empty, StringComparison.Ordinal)
+            .Equals("ENERGYLEVEL", StringComparison.OrdinalIgnoreCase) == true ||
+        description?.Equals("ENERGY", StringComparison.OrdinalIgnoreCase) == true;
 
     private static string FirstNonEmpty(params string?[] values) =>
         values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? string.Empty;

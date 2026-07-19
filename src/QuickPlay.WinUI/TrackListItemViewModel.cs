@@ -19,6 +19,7 @@ public sealed class TrackListItemViewModel : INotifyPropertyChanged
     public string Title { get; set; } = string.Empty;
     public string Bpm { get; set; } = string.Empty;
     public string InitialKey { get; set; } = string.Empty;
+    public string Energy { get; set; } = string.Empty;
     public string Duration { get; set; } = string.Empty;
     public string FileName { get; set; } = string.Empty;
     public TrackMetadata Metadata { get; set; } = TrackMetadata.FromFileName(string.Empty);
@@ -32,6 +33,7 @@ public sealed class TrackListItemViewModel : INotifyPropertyChanged
         Title = metadata.Title;
         Bpm = metadata.Bpm?.ToString() ?? string.Empty;
         InitialKey = metadata.InitialKey;
+        Energy = metadata.Energy;
         Duration = metadata.Duration > TimeSpan.Zero ? FormatDuration(metadata.Duration) : string.Empty;
         FileName = metadata.FileName;
         OnPropertyChanged(string.Empty);

@@ -12,20 +12,6 @@ public sealed class ShortcutSettingsDialog
     private readonly nint _ownerWindowHandle;
     private readonly Dictionary<ApplicationCommand, ShortcutGesture> _shortcuts = [];
     private readonly Dictionary<ApplicationCommand, TextBlock> _gestureLabels = [];
-    private readonly NumberBox _shortSeekBox = new()
-    {
-        Header = "Arrow seek (seconds)",
-        Minimum = 1,
-        Maximum = 300,
-        SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact
-    };
-    private readonly NumberBox _longSeekBox = new()
-    {
-        Header = "Shift + Arrow seek (seconds)",
-        Minimum = 1,
-        Maximum = 600,
-        SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact
-    };
     private readonly TextBlock _captureMessage = new()
     {
         Text = "Select an action, then press its new shortcut.",
@@ -58,8 +44,6 @@ public sealed class ShortcutSettingsDialog
                 : defaults[command];
         }
 
-        _shortSeekBox.Value = settings.ShortSeekSeconds;
-        _longSeekBox.Value = settings.LongSeekSeconds;
         _dialog.Content = BuildContent();
     }
 
@@ -73,8 +57,6 @@ public sealed class ShortcutSettingsDialog
 
     public void ApplyTo(ApplicationSettings settings)
     {
-        settings.ShortSeekSeconds = _shortSeekBox.Value;
-        settings.LongSeekSeconds = _longSeekBox.Value;
         settings.Shortcuts = new Dictionary<ApplicationCommand, ShortcutGesture>(_shortcuts);
     }
 
@@ -87,7 +69,6 @@ public sealed class ShortcutSettingsDialog
         };
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(210) });
-        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
@@ -116,15 +97,6 @@ public sealed class ShortcutSettingsDialog
         Grid.SetRow(_captureMessage, 2);
         layout.Children.Add(_captureMessage);
 
-        var seekGrid = new Grid { ColumnSpacing = 12 };
-        seekGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        seekGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        seekGrid.Children.Add(_shortSeekBox);
-        Grid.SetColumn(_longSeekBox, 1);
-        seekGrid.Children.Add(_longSeekBox);
-        Grid.SetRow(seekGrid, 3);
-        layout.Children.Add(seekGrid);
-
         var footer = new Grid { ColumnSpacing = 12 };
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -133,7 +105,7 @@ public sealed class ShortcutSettingsDialog
         footer.Children.Add(resetButton);
         Grid.SetColumn(_warningText, 1);
         footer.Children.Add(_warningText);
-        Grid.SetRow(footer, 4);
+        Grid.SetRow(footer, 3);
         layout.Children.Add(footer);
 
         return layout;
@@ -234,8 +206,6 @@ public sealed class ShortcutSettingsDialog
             _gestureLabels[command].Text = defaults[command].DisplayText;
         }
 
-        _shortSeekBox.Value = 5;
-        _longSeekBox.Value = 30;
         _capturingCommand = null;
         _warningText.Text = string.Empty;
         _captureMessage.Text = "Defaults restored. Select Save to apply them.";
@@ -254,12 +224,6 @@ public sealed class ShortcutSettingsDialog
             return;
         }
 
-        if (double.IsNaN(_shortSeekBox.Value) || double.IsNaN(_longSeekBox.Value) ||
-            _shortSeekBox.Value <= 0 || _longSeekBox.Value <= 0)
-        {
-            _warningText.Text = "Seek distances must be positive.";
-            args.Cancel = true;
-        }
     }
 
     private const uint MessageBoxYesNo = 0x00000004;

@@ -6,7 +6,7 @@ QuickPlay is a Windows 11 / WinUI 3 desktop application for rapidly auditioning 
 
 QuickPlay is designed for the moment when you have a large folder of music and need to work through it quickly. Instead of opening every file separately or repeatedly dragging a playback position, QuickPlay starts each track at a configurable audition point and immediately continues from the same point when you move to the next or previous track.
 
-The goal is to make listening, deciding, and organizing feel like one continuous action. You can move through tracks and neighboring folders from the keyboard, click anywhere in the waveform to listen from that position, copy a track you want to keep, or send an unwanted track to the Windows Recycle Bin after confirmation. Metadata such as artist, title, BPM, key, and duration stays visible while you review the folder.
+The goal is to make listening, deciding, and organizing feel like one continuous action. You can move through tracks and neighboring folders from the keyboard, click anywhere in the waveform to listen from that position, copy a track you want to keep, or send an unwanted track to the Windows Recycle Bin after confirmation. Metadata such as artist, title, BPM, key, Mixed In Key Energy, and duration stays visible while you review the folder.
 
 QuickPlay is especially useful for DJs, collectors, producers, and anyone sorting downloads, recordings, samples, or large music archives.
 
@@ -21,7 +21,10 @@ The project is published openly as both a useful audio tool and a practical exam
 - Configurable audition start position, defaulting to `01:00`.
 - Immediate playback when moving between tracks or sibling folders.
 - Clickable waveform seeking and current/total time display.
-- Metadata display for artist, title, BPM, musical key, and duration.
+- Metadata display for artist, title, BPM, musical key, Mixed In Key Energy, and duration, including AIFF/AIF support.
+- End-of-folder playback continues with the first supported track in the next sibling folder without wrapping.
+- Native File, Settings, and About menus.
+- Separate general playback and keyboard shortcut settings dialogs.
 - Configurable keyboard shortcuts with conflict confirmation.
 - Safe fallback when a track is shorter than the audition position.
 - Copy the active file or move it to the Windows Recycle Bin.
@@ -83,7 +86,11 @@ dotnet run --project tests\QuickPlay.Tests\QuickPlay.Tests.csproj
 - Ctrl+C: copy the active audio file.
 - Delete: confirm and move the active track to the Recycle Bin.
 
-All assignments and seek distances can be changed from **Keyboard shortcuts**. If a new shortcut is already in use, QuickPlay asks whether to move it; the previous action then becomes unassigned.
+Shortcut assignments can be changed from **Settings → Keyboard**. Audition Start Position and short/long seek durations are available under **Settings → Settings**. If a new shortcut is already in use, QuickPlay asks whether to move it; the previous action then becomes unassigned.
+
+## Known issue in version 1.1
+
+After using the application menu, keyboard focus can remain in a state where arrow keys affect both menu/list navigation and playback. Clicking the track list restores the expected playback shortcut behavior. This is tracked in [TODO.md](TODO.md) for a future focus-routing fix.
 
 ## Architecture
 

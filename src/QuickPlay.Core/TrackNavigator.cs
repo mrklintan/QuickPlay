@@ -37,7 +37,9 @@ public sealed class TrackNavigator
     private Track? MoveBy(int offset)
     {
         if (_tracks.Count == 0) return null;
-        _currentIndex = (_currentIndex + offset + _tracks.Count) % _tracks.Count;
+        var candidate = _currentIndex + offset;
+        if (candidate < 0 || candidate >= _tracks.Count) return null;
+        _currentIndex = candidate;
         return Current;
     }
 }

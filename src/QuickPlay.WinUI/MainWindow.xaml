@@ -10,7 +10,7 @@
 
     <Grid
         x:Name="RootGrid"
-        Padding="24"
+        Padding="24,12,24,20"
         AllowDrop="True"
         Background="#202020"
         DragOver="OnDragOver"
@@ -22,78 +22,95 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Grid ColumnSpacing="16">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <StackPanel>
-                <TextBlock FontSize="28" FontWeight="SemiBold" Text="QuickPlay" />
-                <TextBlock x:Name="FolderNameText" Foreground="#B8B8B8" Text="Drop a folder here or choose Open Folder" />
-            </StackPanel>
-            <StackPanel Grid.Column="1" VerticalAlignment="Center" Orientation="Horizontal" Spacing="8">
-                <Button Content="Open Folder" Click="OnChooseFolder" />
-                <Button Content="Previous" Click="OnPrevious" />
-                <Button x:Name="PlayPauseButton" Content="Pause" Click="OnPlayPause" />
-                <Button Content="Next" Click="OnNext" />
-            </StackPanel>
-        </Grid>
+        <StackPanel Spacing="8">
+            <MenuBar Margin="-10,0,0,0">
+                <MenuBarItem Title="File">
+                    <MenuFlyoutItem Text="Open Folder" Click="OnChooseFolder" />
+                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem Text="Exit" Click="OnExit" />
+                </MenuBarItem>
+                <MenuBarItem Title="Settings">
+                    <MenuFlyoutItem Text="Settings" Click="OnGeneralSettings" />
+                    <MenuFlyoutItem Text="Keyboard" Click="OnShortcutSettings" />
+                </MenuBarItem>
+                <MenuBarItem Title="About">
+                    <MenuFlyoutItem Text="About QuickPlay" Click="OnAbout" />
+                </MenuBarItem>
+            </MenuBar>
+
+            <Grid ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock VerticalAlignment="Center" FontSize="28" FontWeight="SemiBold" Text="QuickPlay" />
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Orientation="Horizontal" Spacing="8">
+                    <Button Content="Previous" Click="OnPrevious" />
+                    <Button x:Name="PlayPauseButton" Content="Pause" Click="OnPlayPause" />
+                    <Button Content="Next" Click="OnNext" />
+                </StackPanel>
+            </Grid>
+        </StackPanel>
 
         <Border
             Grid.Row="1"
-            Padding="14,10"
-            Background="#2B2B2B"
-            BorderBrush="#3D3D3D"
-            BorderThickness="1"
-            CornerRadius="8">
-            <StackPanel Orientation="Horizontal" Spacing="10">
-                <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" Text="Audition start" />
-                <TextBox x:Name="AuditionPositionBox" Width="90" VerticalContentAlignment="Center" PlaceholderText="01:00" />
-                <Button Content="Save" Click="OnSaveSettings" />
-                <Button Content="Keyboard shortcuts" Click="OnShortcutSettings" />
-                <TextBlock x:Name="SettingsMessage" VerticalAlignment="Center" Foreground="#B8B8B8" />
-            </StackPanel>
-        </Border>
-
-        <Border
-            Grid.Row="2"
             Padding="18"
             Background="#2B2B2B"
             BorderBrush="#3D3D3D"
             BorderThickness="1"
             CornerRadius="10">
-            <Grid RowSpacing="5">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
-                <TextBlock x:Name="NowPlayingTitleText" FontSize="24" FontWeight="SemiBold" Text="Nothing playing" TextTrimming="CharacterEllipsis" />
-                <TextBlock x:Name="NowPlayingArtistText" Grid.Row="1" FontSize="16" Foreground="#D0D0D0" Text="—" TextTrimming="CharacterEllipsis" />
-                <Grid Grid.Row="2" Margin="0,6,0,0" ColumnSpacing="18">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <TextBlock x:Name="NowPlayingBpmText" Text="BPM —" />
-                    <TextBlock x:Name="NowPlayingKeyText" Grid.Column="1" Text="Key —" />
-                    <TextBlock x:Name="CurrentFileNameText" Grid.Column="2" HorizontalAlignment="Right" Foreground="#9E9E9E" Text="—" TextTrimming="CharacterEllipsis" />
+            <Grid ColumnSpacing="20">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="420" />
+                </Grid.ColumnDefinitions>
+
+                <Grid RowSpacing="5">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock x:Name="NowPlayingTitleText" FontSize="24" FontWeight="SemiBold" Text="Nothing playing" TextTrimming="CharacterEllipsis" />
+                    <TextBlock x:Name="CurrentFileNameText" Grid.Row="1" Foreground="#9E9E9E" Text="—" TextTrimming="CharacterEllipsis" />
+                    <StackPanel Grid.Row="2" Margin="0,7,0,0" Orientation="Horizontal" Spacing="20">
+                        <TextBlock x:Name="NowPlayingKeyText" Text="Key —" />
+                        <TextBlock x:Name="NowPlayingBpmText" Text="BPM —" />
+                        <TextBlock x:Name="NowPlayingEnergyText" Text="Energy —" />
+                    </StackPanel>
                 </Grid>
+
+                <StackPanel Grid.Column="1" Spacing="8">
+                    <Border Padding="12,8" Background="#303030" BorderBrush="#484848" BorderThickness="1" CornerRadius="6">
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="60" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock VerticalAlignment="Center" Foreground="#9E9E9E" Text="Artist" />
+                            <TextBlock x:Name="NowPlayingArtistText" Grid.Column="1" Text="—" TextTrimming="CharacterEllipsis" />
+                        </Grid>
+                    </Border>
+                    <Border Padding="12,8" Background="#303030" BorderBrush="#484848" BorderThickness="1" CornerRadius="6">
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="60" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock VerticalAlignment="Center" Foreground="#9E9E9E" Text="Folder" />
+                            <TextBlock x:Name="CurrentFolderText" Grid.Column="1" Text="—" TextTrimming="CharacterEllipsis" />
+                        </Grid>
+                    </Border>
+                </StackPanel>
             </Grid>
         </Border>
 
-        <StackPanel Grid.Row="3" Spacing="5">
-            <Border
-                Background="#171717"
-                BorderBrush="#454545"
-                BorderThickness="1"
-                CornerRadius="10">
+        <StackPanel Grid.Row="2" Spacing="5">
+            <Border Background="#171717" BorderBrush="#454545" BorderThickness="1" CornerRadius="10">
                 <Canvas
                     x:Name="WaveformCanvas"
                     Height="150"
@@ -106,7 +123,7 @@
             </Grid>
         </StackPanel>
 
-        <Grid Grid.Row="4" MinHeight="180">
+        <Grid Grid.Row="3" MinHeight="180">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
@@ -118,12 +135,14 @@
                     <ColumnDefinition Width="70" />
                     <ColumnDefinition Width="70" />
                     <ColumnDefinition Width="70" />
+                    <ColumnDefinition Width="70" />
                 </Grid.ColumnDefinitions>
                 <TextBlock FontWeight="SemiBold" Text="Artist" />
                 <TextBlock Grid.Column="1" FontWeight="SemiBold" Text="Title" />
                 <TextBlock Grid.Column="2" FontWeight="SemiBold" Text="BPM" />
                 <TextBlock Grid.Column="3" FontWeight="SemiBold" Text="Key" />
-                <TextBlock Grid.Column="4" FontWeight="SemiBold" Text="Duration" />
+                <TextBlock Grid.Column="4" FontWeight="SemiBold" Text="Energy" />
+                <TextBlock Grid.Column="5" FontWeight="SemiBold" Text="Duration" />
             </Grid>
             <ListView
                 x:Name="TrackList"
@@ -145,18 +164,20 @@
                                 <ColumnDefinition Width="70" />
                                 <ColumnDefinition Width="70" />
                                 <ColumnDefinition Width="70" />
+                                <ColumnDefinition Width="70" />
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="{x:Bind Artist, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
                             <TextBlock Grid.Column="1" Text="{x:Bind Title, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
                             <TextBlock Grid.Column="2" Text="{x:Bind Bpm, Mode=OneWay}" />
                             <TextBlock Grid.Column="3" Text="{x:Bind InitialKey, Mode=OneWay}" />
-                            <TextBlock Grid.Column="4" Text="{x:Bind Duration, Mode=OneWay}" />
+                            <TextBlock Grid.Column="4" Text="{x:Bind Energy, Mode=OneWay}" />
+                            <TextBlock Grid.Column="5" Text="{x:Bind Duration, Mode=OneWay}" />
                         </Grid>
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>
         </Grid>
 
-        <TextBlock x:Name="StatusText" Grid.Row="5" Foreground="#B8B8B8" Text="Ready. Drop a music folder anywhere in this window." />
+        <TextBlock x:Name="StatusText" Grid.Row="4" Foreground="#B8B8B8" Text="Ready. Drop a music folder anywhere in this window." />
     </Grid>
 </Window>

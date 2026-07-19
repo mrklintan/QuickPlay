@@ -23,6 +23,7 @@ public sealed class FolderNavigator
             siblings,
             path => string.Equals(path, normalizedCurrent, StringComparison.OrdinalIgnoreCase));
         if (index < 0) return null;
-        return siblings[(index + offset + siblings.Length) % siblings.Length];
+        var candidate = index + offset;
+        return candidate < 0 || candidate >= siblings.Length ? null : siblings[candidate];
     }
 }

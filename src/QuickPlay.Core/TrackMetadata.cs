@@ -9,8 +9,9 @@ public sealed record TrackMetadata(
     string Genre,
     string Comment,
     uint? Bpm,
-    string Grouping,
     string InitialKey,
+    string Energy,
+    string Grouping,
     TimeSpan Duration,
     string FileName,
     string FullPath)
@@ -24,8 +25,9 @@ public sealed record TrackMetadata(
         Genre: string.Empty,
         Comment: string.Empty,
         Bpm: null,
-        Grouping: string.Empty,
         InitialKey: string.Empty,
+        Energy: string.Empty,
+        Grouping: string.Empty,
         Duration: TimeSpan.Zero,
         FileName: Path.GetFileName(filePath),
         FullPath: filePath);

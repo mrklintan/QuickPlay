@@ -10,6 +10,7 @@ internal static class Program
             (nameof(PlaybackControllerTests), PlaybackControllerTests.Run),
             (nameof(SettingsTests), SettingsTests.Run),
             (nameof(TrackCatalogTests), TrackCatalogTests.Run),
+            (nameof(TrackNavigatorBoundaryTests), TrackNavigatorBoundaryTests.Run),
             (nameof(FolderNavigatorTests), FolderNavigatorTests.Run),
             (nameof(MetadataTests), MetadataTests.Run),
             (nameof(ShortcutTests), ShortcutTests.Run),

@@ -38,7 +38,7 @@ public sealed partial class MainWindow : Window
     private Line? _playheadLine;
     private string? _currentFolderPath;
     private bool _updatingSelection;
-    private bool _shortcutDialogOpen;
+    private bool _dialogOpen;
 
     public ObservableCollection<TrackListItemViewModel> Tracks { get; } = [];
 
@@ -74,7 +74,6 @@ public sealed partial class MainWindow : Window
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        AuditionPositionBox.Text = FormatPosition(_settings.AuditionStartPosition);
         PlayPauseButton.Content = "Play";
         _positionTimer.Start();
         RootGrid.Focus(FocusState.Programmatic);
@@ -82,11 +81,18 @@ public sealed partial class MainWindow : Window
 
     private async void OnChooseFolder(object sender, RoutedEventArgs e)
     {
-        var picker = new FolderPicker();
-        picker.FileTypeFilter.Add("*");
-        InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
-        var folder = await picker.PickSingleFolderAsync();
-        if (folder is not null) OpenFolder(folder.Path);
+        try
+        {
+            var picker = new FolderPicker();
+            picker.FileTypeFilter.Add("*");
+            InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+            var folder = await picker.PickSingleFolderAsync();
+            if (folder is not null) OpenFolder(folder.Path);
+        }
+        finally
+        {
+            FocusPlaybackSurface();
+        }
     }
 
     private void OnDragOver(object sender, DragEventArgs e)
@@ -120,10 +126,11 @@ public sealed partial class MainWindow : Window
     private void OnPrevious(object sender, RoutedEventArgs e) => ExecuteCommand(ApplicationCommand.PreviousTrack);
     private void OnNext(object sender, RoutedEventArgs e) => ExecuteCommand(ApplicationCommand.NextTrack);
     private void OnPlayPause(object sender, RoutedEventArgs e) => ExecuteCommand(ApplicationCommand.PlayPause);
+    private void OnExit(object sender, RoutedEventArgs e) => Close();
 
     private void OnKeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (_shortcutDialogOpen || IsEditableFocus() || KeyboardGestureFactory.IsModifier(e.Key)) return;
+        if (_dialogOpen || IsEditableFocus() || IsMenuFocus() || KeyboardGestureFactory.IsModifier(e.Key)) return;
         var command = _shortcutManager.Resolve(KeyboardGestureFactory.Create(e.Key));
         if (command is null) return;
         e.Handled = true;
@@ -136,18 +143,26 @@ public sealed partial class MainWindow : Window
         ExecutePlayback(() => _playback.SelectAndPlay(TrackList.SelectedIndex));
     }
 
-    private void OnSaveSettings(object sender, RoutedEventArgs e)
+    private async void OnGeneralSettings(object sender, RoutedEventArgs e)
     {
-        if (!TryParsePosition(AuditionPositionBox.Text, out var position))
+        var dialog = new GeneralSettingsDialog(_settings)
         {
-            SettingsMessage.Text = "Use mm:ss (seconds 00–59).";
-            return;
+            XamlRoot = RootGrid.XamlRoot
+        };
+        _dialogOpen = true;
+        try
+        {
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+            dialog.ApplyTo(_settings);
+            _settingsStore.Save(_settings);
+            StatusText.Text = "Settings saved.";
+            RootGrid.Focus(FocusState.Programmatic);
         }
-        _settings.AuditionStartPosition = position;
-        _settingsStore.Save(_settings);
-        AuditionPositionBox.Text = FormatPosition(position);
-        SettingsMessage.Text = "Saved";
-        RootGrid.Focus(FocusState.Programmatic);
+        finally
+        {
+            _dialogOpen = false;
+            FocusPlaybackSurface();
+        }
     }
 
     private async void OnShortcutSettings(object sender, RoutedEventArgs e)
@@ -156,18 +171,53 @@ public sealed partial class MainWindow : Window
         {
             XamlRoot = RootGrid.XamlRoot
         };
-        _shortcutDialogOpen = true;
+        _dialogOpen = true;
         try
         {
             if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
             dialog.ApplyTo(_settings);
             _settingsStore.Save(_settings);
-            SettingsMessage.Text = "Shortcuts saved";
+            StatusText.Text = "Keyboard shortcuts saved.";
             RootGrid.Focus(FocusState.Programmatic);
         }
         finally
         {
-            _shortcutDialogOpen = false;
+            _dialogOpen = false;
+            FocusPlaybackSurface();
+        }
+    }
+
+    private async void OnAbout(object sender, RoutedEventArgs e)
+    {
+        var version = typeof(MainWindow).Assembly.GetName().Version;
+        var dialog = new ContentDialog
+        {
+            XamlRoot = RootGrid.XamlRoot,
+            Title = "About QuickPlay",
+            CloseButtonText = "Close",
+            DefaultButton = ContentDialogButton.Close,
+            Content = new StackPanel
+            {
+                Spacing = 8,
+                Children =
+                {
+                    new TextBlock { Text = "QuickPlay", FontSize = 22 },
+                    new TextBlock { Text = $"Version {version?.ToString(2) ?? "1.1"}" },
+                    new TextBlock
+                    {
+                        Text = "Fast Windows audio player for auditioning DJ and music libraries.",
+                        TextWrapping = TextWrapping.Wrap,
+                        MaxWidth = 420
+                    }
+                }
+            }
+        };
+        _dialogOpen = true;
+        try { await dialog.ShowAsync(); }
+        finally
+        {
+            _dialogOpen = false;
+            FocusPlaybackSurface();
         }
     }
 
@@ -260,7 +310,8 @@ public sealed partial class MainWindow : Window
             _metadataCancellation?.Dispose();
             _metadataCancellation = new CancellationTokenSource();
             _currentFolderPath = System.IO.Path.GetFullPath(System.IO.Path.TrimEndingDirectorySeparator(folderPath));
-            FolderNameText.Text = System.IO.Path.GetFileName(_currentFolderPath);
+            CurrentFolderText.Text = System.IO.Path.GetFileName(_currentFolderPath);
+            ToolTipService.SetToolTip(CurrentFolderText, _currentFolderPath);
             _waveform = null;
             DrawWaveform();
             var tracks = _catalog.LoadFolder(_currentFolderPath);
@@ -312,7 +363,7 @@ public sealed partial class MainWindow : Window
                 ExecutePlayback(_playback.MovePreviousAndPlay);
                 break;
             case ApplicationCommand.NextTrack:
-                ExecutePlayback(_playback.MoveNextAndPlay);
+                PlayNextTrack();
                 break;
             case ApplicationCommand.PreviousFolder:
                 NavigateSiblingFolder(next: false);
@@ -450,7 +501,42 @@ public sealed partial class MainWindow : Window
             var folder = next
                 ? _folderNavigator.MoveNext(_currentFolderPath)
                 : _folderNavigator.MovePrevious(_currentFolderPath);
-            if (folder is not null) OpenFolder(folder);
+            if (folder is not null)
+            {
+                OpenFolder(folder);
+                return;
+            }
+
+            StatusText.Text = next
+                ? "Already at the last sibling folder."
+                : "Already at the first sibling folder.";
+        }
+        catch (Exception exception)
+        {
+            StatusText.Text = exception.Message;
+        }
+    }
+
+    private void PlayNextTrack()
+    {
+        try
+        {
+            var startPosition = _playback.MoveNextAndPlay();
+            if (startPosition is not null)
+            {
+                PlayAndPresent(startPosition);
+                return;
+            }
+
+            if (_currentFolderPath is null) return;
+            var nextFolder = _folderNavigator.MoveNext(_currentFolderPath);
+            if (nextFolder is null)
+            {
+                StatusText.Text = "End of the last sibling folder.";
+                return;
+            }
+
+            OpenFolder(nextFolder);
         }
         catch (Exception exception)
         {
@@ -487,6 +573,7 @@ public sealed partial class MainWindow : Window
         NowPlayingArtistText.Text = string.IsNullOrWhiteSpace(item.Artist) ? "Unknown artist" : item.Artist;
         NowPlayingBpmText.Text = string.IsNullOrWhiteSpace(item.Bpm) ? "BPM —" : $"BPM {item.Bpm}";
         NowPlayingKeyText.Text = string.IsNullOrWhiteSpace(item.InitialKey) ? "Key —" : $"Key {item.InitialKey}";
+        NowPlayingEnergyText.Text = string.IsNullOrWhiteSpace(item.Energy) ? "Energy —" : $"Energy {item.Energy}";
         CurrentFileNameText.Text = item.FileName;
     }
 
@@ -496,6 +583,7 @@ public sealed partial class MainWindow : Window
         NowPlayingArtistText.Text = "—";
         NowPlayingBpmText.Text = "BPM —";
         NowPlayingKeyText.Text = "Key —";
+        NowPlayingEnergyText.Text = "Energy —";
         CurrentFileNameText.Text = "—";
         PlayPauseButton.Content = "Play";
     }
@@ -534,6 +622,28 @@ public sealed partial class MainWindow : Window
         return false;
     }
 
+    private bool IsMenuFocus()
+    {
+        var current = FocusManager.GetFocusedElement(RootGrid.XamlRoot) as DependencyObject;
+        while (current is not null)
+        {
+            if (current is MenuBar or MenuBarItem or MenuFlyoutItem) return true;
+            current = VisualTreeHelper.GetParent(current);
+        }
+        return false;
+    }
+
+    private void FocusPlaybackSurface()
+    {
+        if (_playback.CurrentTrack is not null)
+        {
+            TrackList.Focus(FocusState.Programmatic);
+            return;
+        }
+
+        RootGrid.Focus(FocusState.Programmatic);
+    }
+
     private void OnClosed(object sender, WindowEventArgs args)
     {
         _positionTimer.Stop();
@@ -547,16 +657,4 @@ public sealed partial class MainWindow : Window
     private static string FormatPosition(TimeSpan position) =>
         $"{(int)position.TotalMinutes:00}:{position.Seconds:00}";
 
-    private static bool TryParsePosition(string text, out TimeSpan position)
-    {
-        position = TimeSpan.Zero;
-        var parts = text.Trim().Split(':');
-        if (parts.Length != 2 ||
-            !int.TryParse(parts[0], out var minutes) ||
-            !int.TryParse(parts[1], out var seconds) ||
-            minutes < 0 || seconds is < 0 or > 59)
-            return false;
-        position = TimeSpan.FromMinutes(minutes) + TimeSpan.FromSeconds(seconds);
-        return true;
-    }
 }
