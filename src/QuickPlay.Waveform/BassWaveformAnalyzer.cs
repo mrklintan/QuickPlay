@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using QuickPlay.Audio;
 
 namespace QuickPlay.Waveform;
 
@@ -16,7 +17,7 @@ public sealed partial class BassWaveformAnalyzer : IWaveformAnalyzer
         const uint bassUnicode = 0x80000000;
         const uint bassStreamDecode = 0x200000;
         const uint bassDataFloat = 0x40000000;
-        var stream = BassNative.BASS_StreamCreateFile(false, filePath, 0, 0, bassUnicode | bassStreamDecode);
+        var stream = BassNative.BASS_StreamCreateFile(false, BassFilePath.Prepare(filePath), 0, 0, bassUnicode | bassStreamDecode);
         if (stream == nint.Zero) return new WaveformData([]);
 
         try

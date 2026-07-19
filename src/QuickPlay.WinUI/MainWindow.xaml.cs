@@ -202,7 +202,7 @@ public sealed partial class MainWindow : Window
                 Children =
                 {
                     new TextBlock { Text = "QuickPlay", FontSize = 22 },
-                    new TextBlock { Text = $"Version {version?.ToString(2) ?? "1.1"}" },
+                    new TextBlock { Text = $"Version {version?.ToString(4) ?? "1.1.0.1"}" },
                     new TextBlock
                     {
                         Text = "Fast Windows audio player for auditioning DJ and music libraries.",

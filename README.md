@@ -24,6 +24,7 @@ The project is published openly as both a useful audio tool and a practical exam
 - Immediate playback when moving between tracks or sibling folders.
 - Clickable waveform seeking and current/total time display.
 - Metadata display for artist, title, BPM, musical key, Mixed In Key Energy, and duration, including AIFF/AIF support.
+- Playback and waveform analysis for audio files stored at Windows paths that are 260 characters or longer.
 - End-of-folder playback continues with the first supported track in the next sibling folder without wrapping.
 - Native File, Settings, and About menus.
 - Separate general playback and keyboard shortcut settings dialogs.

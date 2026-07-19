@@ -31,7 +31,7 @@ public sealed partial class BassAudioBackend : IAudioBackend
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         FreeStream();
-        _stream = BassNative.BASS_StreamCreateFile(false, filePath, 0, 0, BassUnicode);
+        _stream = BassNative.BASS_StreamCreateFile(false, BassFilePath.Prepare(filePath), 0, 0, BassUnicode);
         if (_stream == nint.Zero) throw BassError($"open '{filePath}'");
         var length = BassNative.BASS_ChannelGetLength(_stream, 0);
         var seconds = BassNative.BASS_ChannelBytes2Seconds(_stream, length);
