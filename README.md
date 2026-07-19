@@ -48,6 +48,14 @@ Before building QuickPlay:
 
 The final expected path is `src/Bass/x64/bass.dll`. The `QuickPlay.WinUI` project copies that DLL beside the application executable during build.
 
+## Prebuilt Windows x64 release
+
+The GitHub Releases page provides a ready-to-run, self-contained Windows x64 ZIP. It includes the QuickPlay executable, the required .NET and Windows App SDK runtime files, `bass.dll`, and all applicable licence and third-party notices.
+
+Because the prebuilt package includes BASS under its free non-commercial terms, that package is provided for **non-commercial use only**. Commercial use requires an appropriate BASS licence from Un4seen Developments. This restriction applies to the BASS-powered binary package, not to QuickPlay's own source code.
+
+Extract the ZIP to a normal writable folder and run `QuickPlay.WinUI.exe`. Windows may show a SmartScreen warning because the executable is not code-signed.
+
 ## Build and run
 
 Requirements:
