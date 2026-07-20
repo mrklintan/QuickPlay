@@ -29,16 +29,17 @@
         <StackPanel Spacing="8">
             <MenuBar Margin="-10,0,0,0">
                 <MenuBarItem Title="File">
-                    <MenuFlyoutItem Text="Open Folder" Click="OnChooseFolder" />
+                    <MenuFlyoutItem Text="Open Folder..." KeyboardAcceleratorTextOverride="Ctrl+O" Click="OnChooseFolder" />
                     <MenuFlyoutSeparator />
                     <MenuFlyoutItem Text="Exit" Click="OnExit" />
                 </MenuBarItem>
                 <MenuBarItem Title="Settings">
-                    <MenuFlyoutItem Text="Settings" Click="OnGeneralSettings" />
-                    <MenuFlyoutItem Text="Keyboard" Click="OnShortcutSettings" />
+                    <MenuFlyoutItem Text="Settings..." Click="OnGeneralSettings" />
+                    <MenuFlyoutItem Text="Keyboard..." Click="OnShortcutSettings" />
+                    <MenuFlyoutItem Text="Playlist Columns..." Click="OnPlaylistColumnsSettings" />
                 </MenuBarItem>
                 <MenuBarItem Title="About">
-                    <MenuFlyoutItem Text="About QuickPlay" Click="OnAbout" />
+                    <MenuFlyoutItem Text="About QuickPlay..." Click="OnAbout" />
                 </MenuBarItem>
             </MenuBar>
 
@@ -128,26 +129,24 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
-            <Grid Padding="12,7" Background="#292929">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="2*" />
-                    <ColumnDefinition Width="3*" />
-                    <ColumnDefinition Width="70" />
-                    <ColumnDefinition Width="70" />
-                    <ColumnDefinition Width="70" />
-                    <ColumnDefinition Width="70" />
-                </Grid.ColumnDefinitions>
-                <TextBlock FontWeight="SemiBold" Text="Artist" />
-                <TextBlock Grid.Column="1" FontWeight="SemiBold" Text="Title" />
-                <TextBlock Grid.Column="2" FontWeight="SemiBold" Text="BPM" />
-                <TextBlock Grid.Column="3" FontWeight="SemiBold" Text="Key" />
-                <TextBlock Grid.Column="4" FontWeight="SemiBold" Text="Energy" />
-                <TextBlock Grid.Column="5" FontWeight="SemiBold" Text="Duration" />
-            </Grid>
+            <ScrollViewer
+                x:Name="PlaylistHeaderScrollViewer"
+                Background="#292929"
+                HorizontalScrollBarVisibility="Hidden"
+                HorizontalScrollMode="Enabled"
+                SizeChanged="OnPlaylistViewportSizeChanged"
+                VerticalScrollBarVisibility="Disabled"
+                VerticalScrollMode="Disabled">
+                <StackPanel x:Name="PlaylistHeaderPanel" Background="#292929" Orientation="Horizontal" />
+            </ScrollViewer>
             <ListView
                 x:Name="TrackList"
                 Grid.Row="1"
+                ContainerContentChanging="OnTrackContainerContentChanging"
                 ItemsSource="{x:Bind Tracks}"
+                Loaded="OnTrackListLoaded"
+                ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                ScrollViewer.HorizontalScrollMode="Enabled"
                 SelectionChanged="OnTrackSelected">
                 <ListView.ItemContainerStyle>
                     <Style TargetType="ListViewItem">
@@ -157,22 +156,25 @@
                 </ListView.ItemContainerStyle>
                 <ListView.ItemTemplate>
                     <DataTemplate x:DataType="local:TrackListItemViewModel">
-                        <Grid Padding="4,5">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="2*" />
-                                <ColumnDefinition Width="3*" />
-                                <ColumnDefinition Width="70" />
-                                <ColumnDefinition Width="70" />
-                                <ColumnDefinition Width="70" />
-                                <ColumnDefinition Width="70" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="{x:Bind Artist, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Grid.Column="1" Text="{x:Bind Title, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Grid.Column="2" Text="{x:Bind Bpm, Mode=OneWay}" />
-                            <TextBlock Grid.Column="3" Text="{x:Bind InitialKey, Mode=OneWay}" />
-                            <TextBlock Grid.Column="4" Text="{x:Bind Energy, Mode=OneWay}" />
-                            <TextBlock Grid.Column="5" Text="{x:Bind Duration, Mode=OneWay}" />
-                        </Grid>
+                        <ItemsControl ItemsSource="{x:Bind Cells}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="local:PlaylistCellViewModel">
+                                    <Border Width="{x:Bind Width, Mode=OneWay}" Padding="8,5">
+                                        <TextBlock
+                                            FontStyle="{x:Bind FontStyle, Mode=OneWay}"
+                                            FontWeight="{x:Bind FontWeight, Mode=OneWay}"
+                                            Text="{x:Bind Text, Mode=OneWay}"
+                                            TextTrimming="CharacterEllipsis"
+                                            ToolTipService.ToolTip="{x:Bind ToolTipText, Mode=OneWay}" />
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>

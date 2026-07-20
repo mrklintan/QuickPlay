@@ -3,7 +3,7 @@ using QuickPlay.Core;
 namespace QuickPlay.Audio;
 
 public sealed class PlaybackController(
-    TrackNavigator navigator,
+    PlaybackQueue queue,
     AudioPlayer player,
     ApplicationSettings settings)
 {
@@ -12,10 +12,10 @@ public sealed class PlaybackController(
     public bool IsPlaying => player.IsPlaying;
     public Track? CurrentTrack => player.CurrentTrack;
 
-    public TimeSpan? PlayCurrent() => Play(navigator.Current);
-    public TimeSpan? MoveNextAndPlay() => Play(navigator.MoveNext());
-    public TimeSpan? MovePreviousAndPlay() => Play(navigator.MovePrevious());
-    public TimeSpan? SelectAndPlay(int index) => Play(navigator.Select(index));
+    public TimeSpan? PlayCurrent() => Play(queue.Current);
+    public TimeSpan? MoveNextAndPlay(bool removeCompletedTracks = true) => Play(queue.MoveNext(removeCompletedTracks));
+    public TimeSpan? MovePreviousAndPlay(bool removeCompletedTracks = true) => Play(queue.MovePrevious(removeCompletedTracks));
+    public TimeSpan? SelectAndPlay(Track track, bool removeCompletedTracks = true) => Play(queue.Select(track, removeCompletedTracks));
     public TimeSpan? SeekBy(TimeSpan offset) => player.SeekBy(offset);
     public bool? TogglePause() => player.TogglePause();
     public TimeSpan? SeekToFraction(double fraction) =>

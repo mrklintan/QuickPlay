@@ -6,6 +6,7 @@ using QuickPlay.WinUI.Services;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
@@ -20,7 +21,7 @@ namespace QuickPlay.WinUI;
 public sealed partial class MainWindow : Window
 {
     private readonly TrackCatalog _catalog = new();
-    private readonly TrackNavigator _navigator = new();
+    private readonly PlaybackQueue _queue = new();
     private readonly FolderNavigator _folderNavigator = new();
     private readonly ITrackMetadataReader _metadataReader = new TagLibTrackMetadataReader();
     private readonly ISettingsStore _settingsStore;
@@ -32,6 +33,9 @@ public sealed partial class MainWindow : Window
     private readonly PlaybackController _playback;
     private readonly IWaveformAnalyzer _waveformAnalyzer = new BassWaveformAnalyzer();
     private readonly DispatcherTimer _positionTimer = new() { Interval = TimeSpan.FromMilliseconds(200) };
+    private readonly Dictionary<Track, TrackListItemViewModel> _itemsByTrack = [];
+    private readonly Dictionary<PlaylistColumn, FrameworkElement> _playlistHeaderContainers = [];
+    private readonly Dictionary<PlaylistColumn, Button> _playlistHeaderButtons = [];
     private CancellationTokenSource? _waveformCancellation;
     private CancellationTokenSource? _metadataCancellation;
     private WaveformData? _waveform;
@@ -39,12 +43,19 @@ public sealed partial class MainWindow : Window
     private string? _currentFolderPath;
     private bool _updatingSelection;
     private bool _dialogOpen;
+    private ScrollViewer? _trackListScrollViewer;
+    private PlaylistColumn? _resizingColumn;
+    private double _resizeStartWidth;
+    private TimeSpan _currentPlayedTime;
+    private DateTimeOffset? _playbackClockStartedAt;
 
     public ObservableCollection<TrackListItemViewModel> Tracks { get; } = [];
 
     public MainWindow()
     {
         InitializeComponent();
+        var iconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "QuickPlay.ico");
+        if (File.Exists(iconPath)) AppWindow.SetIcon(iconPath);
         RootGrid.AddHandler(UIElement.PreviewKeyDownEvent, new KeyEventHandler(OnKeyDown), true);
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var settingsPath = System.IO.Path.Combine(localAppData, "QuickPlay", "settings.json");
@@ -55,7 +66,7 @@ public sealed partial class MainWindow : Window
         _settings = _settingsStore.Load();
         _shortcutManager = new ShortcutManager(_settings);
         _player = new AudioPlayer(new BassAudioBackend());
-        _playback = new PlaybackController(_navigator, _player, _settings);
+        _playback = new PlaybackController(_queue, _player, _settings);
         _positionTimer.Tick += OnPositionTimerTick;
         Closed += OnClosed;
     }
@@ -72,14 +83,99 @@ public sealed partial class MainWindow : Window
         catch (UnauthorizedAccessException) { }
     }
 
-    private void OnLoaded(object sender, RoutedEventArgs e)
+    private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         PlayPauseButton.Content = "Play";
+        ApplyPlaylistLayout(reorderQueue: false);
         _positionTimer.Start();
         RootGrid.Focus(FocusState.Programmatic);
+        await RestoreSavedPlaylistAsync();
+    }
+
+    private async Task RestoreSavedPlaylistAsync()
+    {
+        var session = _settings.PlaylistSession;
+        if (!session.HasSavedPlaylist) return;
+
+        var folderPath = session.FolderPath!;
+        var savedCount = session.PlaylistFiles.Count;
+        if (!Directory.Exists(folderPath))
+        {
+            ResetToDefaultState();
+            await ShowRestoreWarningAsync(savedCount, folderPath, useDefault: true);
+            return;
+        }
+
+        var loadedCount = OpenFolder(
+            folderPath,
+            autoPlay: false,
+            session.PlaylistFiles,
+            session.CurrentTrackPath,
+            session.CompletedFiles);
+        var missingCount = Math.Max(0, savedCount - loadedCount);
+        if (loadedCount == 0)
+        {
+            ResetToDefaultState();
+            await ShowRestoreWarningAsync(savedCount, folderPath, useDefault: true);
+        }
+        else if (missingCount > 0)
+        {
+            await ShowRestoreWarningAsync(missingCount, folderPath, useDefault: false);
+        }
+    }
+
+    private async Task ShowRestoreWarningAsync(int fileCount, string folderPath, bool useDefault)
+    {
+        var suffix = useDefault
+            ? "QuickPlay will continue with an empty playlist and the default layout."
+            : "The available tracks were restored.";
+        var dialog = new ContentDialog
+        {
+            XamlRoot = RootGrid.XamlRoot,
+            Title = "Playlist could not be fully restored",
+            CloseButtonText = "Continue",
+            DefaultButton = ContentDialogButton.Close,
+            Content = new TextBlock
+            {
+                Text = $"Could not load {fileCount} file{(fileCount == 1 ? string.Empty : "s")} from folder:\n{folderPath}\n\n{suffix}",
+                TextWrapping = TextWrapping.Wrap,
+                MaxWidth = 560
+            }
+        };
+        _dialogOpen = true;
+        try { await dialog.ShowAsync(); }
+        finally
+        {
+            _dialogOpen = false;
+            FocusPlaybackSurface();
+        }
+    }
+
+    private void ResetToDefaultState()
+    {
+        _player.Stop();
+        _currentFolderPath = null;
+        _itemsByTrack.Clear();
+        _queue.SetTracks([]);
+        _settings.PlaylistSession.Clear();
+        _settings.PlaylistLayout.ResetColumns();
+        _settings.PlaylistLayout.ColumnWidths = PlaylistLayoutSettings.CreateDefaultWidths();
+        ApplyPlaylistLayout(reorderQueue: false);
+        CurrentFolderText.Text = "—";
+        ToolTipService.SetToolTip(CurrentFolderText, null);
+        _waveform = null;
+        DrawWaveform();
+        ResetNowPlaying();
+        UpdateTimeDisplay();
+        StatusText.Text = "Ready. Drop a music folder anywhere in this window.";
     }
 
     private async void OnChooseFolder(object sender, RoutedEventArgs e)
+    {
+        await ChooseFolderAsync();
+    }
+
+    private async Task ChooseFolderAsync()
     {
         try
         {
@@ -130,8 +226,16 @@ public sealed partial class MainWindow : Window
 
     private void OnKeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (_dialogOpen || IsEditableFocus() || IsMenuFocus() || KeyboardGestureFactory.IsModifier(e.Key)) return;
-        var command = _shortcutManager.Resolve(KeyboardGestureFactory.Create(e.Key));
+        if (_dialogOpen || KeyboardGestureFactory.IsModifier(e.Key)) return;
+        var gesture = KeyboardGestureFactory.Create(e.Key);
+        if (gesture == new ShortcutGesture((int)VirtualKey.O, ShortcutModifiers.Control))
+        {
+            e.Handled = true;
+            _ = ChooseFolderAsync();
+            return;
+        }
+        if (IsEditableFocus() || IsMenuFocus()) return;
+        var command = _shortcutManager.Resolve(gesture);
         if (command is null) return;
         e.Handled = true;
         ExecuteCommand(command.Value);
@@ -139,8 +243,64 @@ public sealed partial class MainWindow : Window
 
     private void OnTrackSelected(object sender, Microsoft.UI.Xaml.Controls.SelectionChangedEventArgs e)
     {
-        if (_updatingSelection || TrackList.SelectedIndex < 0) return;
-        ExecutePlayback(() => _playback.SelectAndPlay(TrackList.SelectedIndex));
+        if (_updatingSelection || TrackList.SelectedItem is not TrackListItemViewModel item ||
+            ReferenceEquals(item.Track, _queue.Current)) return;
+        try
+        {
+            UpdateCurrentCompletionStatus();
+            var startPosition = _playback.SelectAndPlay(item.Track, _settings.RemovePlayedTracks);
+            if (startPosition is null) return;
+            RefreshVisibleQueue();
+            PlayAndPresent(startPosition);
+        }
+        catch (Exception exception)
+        {
+            StatusText.Text = exception.Message;
+        }
+    }
+
+    private void OnTrackContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+    {
+        if (args.InRecycleQueue || args.ItemContainer is not ListViewItem container ||
+            args.Item is not TrackListItemViewModel item) return;
+
+        var selected = new MenuFlyoutItem();
+        selected.Click += (_, _) =>
+        {
+            if (_queue.IsCompleted(item.Track))
+            {
+                _queue.MarkUnplayed(item.Track);
+                if (ReferenceEquals(item.Track, _queue.Current)) ResetPlaybackClock();
+                StatusText.Text = $"Marked {item.Track.DisplayName} as unplayed.";
+            }
+            else
+            {
+                _queue.MarkCompleted(item.Track);
+                StatusText.Text = $"Marked {item.Track.DisplayName} as played.";
+            }
+            UpdatePlaybackStyles();
+        };
+        var all = new MenuFlyoutItem { Text = "Mark All as Unplayed" };
+        all.Click += (_, _) =>
+        {
+            _queue.MarkAllUnplayed();
+            ResetPlaybackClock();
+            UpdatePlaybackStyles();
+            StatusText.Text = "All tracks marked as unplayed.";
+        };
+        var menu = new MenuFlyout();
+        menu.Items.Add(selected);
+        menu.Items.Add(all);
+        menu.Opening += (_, _) =>
+        {
+            selected.Text = _queue.IsCompleted(item.Track)
+                ? "Mark as Unplayed"
+                : "Mark as Played";
+            _updatingSelection = true;
+            TrackList.SelectedItem = item;
+            _updatingSelection = false;
+        };
+        container.ContextFlyout = menu;
     }
 
     private async void OnGeneralSettings(object sender, RoutedEventArgs e)
@@ -187,6 +347,29 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private async void OnPlaylistColumnsSettings(object sender, RoutedEventArgs e)
+    {
+        var dialog = new PlaylistColumnsDialog(_settings.PlaylistLayout)
+        {
+            XamlRoot = RootGrid.XamlRoot
+        };
+        _dialogOpen = true;
+        try
+        {
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+            dialog.ApplyTo(_settings.PlaylistLayout);
+            _settingsStore.Save(_settings);
+            ApplyPlaylistLayout(reorderQueue: true);
+            StatusText.Text = "Playlist columns saved.";
+            RootGrid.Focus(FocusState.Programmatic);
+        }
+        finally
+        {
+            _dialogOpen = false;
+            FocusPlaybackSurface();
+        }
+    }
+
     private async void OnAbout(object sender, RoutedEventArgs e)
     {
         var version = typeof(MainWindow).Assembly.GetName().Version;
@@ -202,7 +385,7 @@ public sealed partial class MainWindow : Window
                 Children =
                 {
                     new TextBlock { Text = "QuickPlay", FontSize = 22 },
-                    new TextBlock { Text = $"Version {version?.ToString(4) ?? "1.1.0.1"}" },
+                    new TextBlock { Text = $"Version {version?.ToString(4) ?? "1.2.0.0"}" },
                     new TextBlock
                     {
                         Text = "Fast Windows audio player for auditioning DJ and music libraries.",
@@ -223,15 +406,18 @@ public sealed partial class MainWindow : Window
 
     private async void PlayAndPresent(TimeSpan? startPosition)
     {
-        if (startPosition is null || _navigator.Current is null) return;
-        var item = FindItem(_navigator.Current);
+        var track = _queue.Current;
+        if (startPosition is null || track is null) return;
+        var item = FindItem(track);
         _updatingSelection = true;
         TrackList.SelectedItem = item;
         if (item is not null) TrackList.ScrollIntoView(item);
         _updatingSelection = false;
         UpdateNowPlaying(item);
+        UpdatePlaybackStyles();
         PlayPauseButton.Content = "Pause";
-        StatusText.Text = $"Playing {_navigator.Current.DisplayName} from {FormatPosition(startPosition.Value)}";
+        StatusText.Text = $"Playing {track.DisplayName} from {FormatPosition(startPosition.Value)}";
+        ResetPlaybackClock();
         UpdateTimeDisplay();
 
         _waveformCancellation?.Cancel();
@@ -239,7 +425,9 @@ public sealed partial class MainWindow : Window
         _waveformCancellation = new CancellationTokenSource();
         try
         {
-            _waveform = await _waveformAnalyzer.AnalyzeAsync(_navigator.Current.FilePath, 300, _waveformCancellation.Token);
+            var waveform = await _waveformAnalyzer.AnalyzeAsync(track.FilePath, 300, _waveformCancellation.Token);
+            if (!ReferenceEquals(track, _queue.Current)) return;
+            _waveform = waveform;
             DrawWaveform();
         }
         catch (OperationCanceledException) { }
@@ -301,7 +489,12 @@ public sealed partial class MainWindow : Window
         UpdatePlayhead();
     }
 
-    private void OpenFolder(string folderPath)
+    private int OpenFolder(
+        string folderPath,
+        bool autoPlay = true,
+        IReadOnlyList<string>? savedPlaylist = null,
+        string? savedCurrentTrack = null,
+        IReadOnlyList<string>? savedCompletedFiles = null)
     {
         try
         {
@@ -314,23 +507,62 @@ public sealed partial class MainWindow : Window
             ToolTipService.SetToolTip(CurrentFolderText, _currentFolderPath);
             _waveform = null;
             DrawWaveform();
-            var tracks = _catalog.LoadFolder(_currentFolderPath);
-            _navigator.SetTracks(tracks);
-            Tracks.Clear();
-            foreach (var track in tracks) Tracks.Add(new TrackListItemViewModel(track));
+            var folderTracks = _catalog.LoadFolder(_currentFolderPath);
+            IReadOnlyList<Track> tracks;
+            Track? restoredCurrent = null;
+            if (savedPlaylist is null)
+            {
+                tracks = folderTracks;
+            }
+            else
+            {
+                var byPath = folderTracks.ToDictionary(track => track.FilePath, StringComparer.OrdinalIgnoreCase);
+                tracks = savedPlaylist
+                    .Where(byPath.ContainsKey)
+                    .Select(path => byPath[path])
+                    .ToArray();
+                if (!string.IsNullOrWhiteSpace(savedCurrentTrack))
+                    restoredCurrent = tracks.FirstOrDefault(track =>
+                        string.Equals(track.FilePath, savedCurrentTrack, StringComparison.OrdinalIgnoreCase));
+            }
+            _itemsByTrack.Clear();
+            var items = tracks.Select(track => new TrackListItemViewModel(track)).ToArray();
+            foreach (var item in items)
+            {
+                item.ConfigureColumns(_settings.PlaylistLayout.Columns, _settings.PlaylistLayout.ColumnWidths);
+                _itemsByTrack.Add(item.Track, item);
+            }
+            var orderedTracks = savedPlaylist is null
+                ? SortItems(items).Select(item => item.Track).ToArray()
+                : items.Select(item => item.Track).ToArray();
+            var completedTracks = savedCompletedFiles is null
+                ? []
+                : tracks.Where(track => savedCompletedFiles.Contains(track.FilePath, StringComparer.OrdinalIgnoreCase));
+            _queue.SetTracks(orderedTracks, restoredCurrent, completedTracks);
+            RefreshVisibleQueue();
             if (tracks.Count == 0)
             {
                 ResetNowPlaying();
                 StatusText.Text = "No supported audio files were found in that folder.";
-                return;
+                return 0;
             }
             StatusText.Text = $"{tracks.Count} tracks found. Loading metadata…";
-            ExecutePlayback(_playback.PlayCurrent);
-            _ = LoadMetadataAsync(Tracks.ToArray(), _metadataCancellation.Token);
+            if (autoPlay)
+            {
+                ExecutePlayback(_playback.PlayCurrent);
+            }
+            else
+            {
+                ResetNowPlaying();
+                UpdateTimeDisplay();
+            }
+            _ = LoadMetadataAsync(items, _metadataCancellation.Token);
+            return tracks.Count;
         }
         catch (Exception exception)
         {
             StatusText.Text = exception.Message;
+            return 0;
         }
     }
 
@@ -338,15 +570,16 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            var current = _navigator.Current;
+            var current = _queue.Current;
             var ordered = items.OrderByDescending(item => ReferenceEquals(item.Track, current));
             foreach (var item in ordered)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var metadata = await _metadataReader.ReadAsync(item.Track.FilePath, cancellationToken);
                 item.ApplyMetadata(metadata);
-                if (ReferenceEquals(item.Track, _navigator.Current)) UpdateNowPlaying(item);
+                if (ReferenceEquals(item.Track, _queue.Current)) UpdateNowPlaying(item);
             }
+            SortPlaylistAndRefresh();
             StatusText.Text = $"{items.Count} tracks ready.";
         }
         catch (OperationCanceledException) { }
@@ -360,7 +593,7 @@ public sealed partial class MainWindow : Window
                 TogglePlayPause();
                 break;
             case ApplicationCommand.PreviousTrack:
-                ExecutePlayback(_playback.MovePreviousAndPlay);
+                PlayPreviousTrack();
                 break;
             case ApplicationCommand.NextTrack:
                 PlayNextTrack();
@@ -446,15 +679,18 @@ public sealed partial class MainWindow : Window
         }
 
         _metadataCancellation?.Cancel();
-        _navigator.RemoveCurrent();
-        if (item is not null) Tracks.Remove(item);
-        if (_navigator.Current is null)
+        _queue.RemoveCurrent();
+        _itemsByTrack.Remove(track);
+        RefreshVisibleQueue();
+        if (_queue.Current is null)
         {
             _waveform = null;
             DrawWaveform();
             ResetNowPlaying();
             UpdateTimeDisplay();
-            StatusText.Text = "Track moved to the Recycle Bin. The folder is now empty.";
+            StatusText.Text = _itemsByTrack.Count == 0
+                ? "Track moved to the Recycle Bin. The folder is now empty."
+                : "Track moved to the Recycle Bin. No tracks remain in Up Next.";
             return;
         }
 
@@ -462,7 +698,7 @@ public sealed partial class MainWindow : Window
         ExecutePlayback(_playback.PlayCurrent);
         _metadataCancellation?.Dispose();
         _metadataCancellation = new CancellationTokenSource();
-        _ = LoadMetadataAsync(Tracks.ToArray(), _metadataCancellation.Token);
+        _ = LoadMetadataAsync(_itemsByTrack.Values.ToArray(), _metadataCancellation.Token);
     }
 
     private void RestoreTrackAfterCancelledDelete(Track track, TimeSpan position, bool wasPlaying)
@@ -478,12 +714,21 @@ public sealed partial class MainWindow : Window
     {
         try
         {
+            if (_playback.CurrentTrack is null && _queue.Current is not null)
+            {
+                ExecutePlayback(_playback.PlayCurrent);
+                return;
+            }
+
+            var wasPlaying = _playback.IsPlaying;
+            if (wasPlaying) StopPlaybackClock();
             var isPlaying = _playback.TogglePause();
             if (isPlaying is null)
             {
                 StatusText.Text = "Open a folder first.";
                 return;
             }
+            if (isPlaying.Value) StartPlaybackClock();
             PlayPauseButton.Content = isPlaying.Value ? "Pause" : "Play";
             StatusText.Text = isPlaying.Value ? "Playback resumed." : "Playback paused.";
         }
@@ -521,9 +766,11 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            var startPosition = _playback.MoveNextAndPlay();
+            UpdateCurrentCompletionStatus();
+            var startPosition = _playback.MoveNextAndPlay(_settings.RemovePlayedTracks);
             if (startPosition is not null)
             {
+                RefreshVisibleQueue();
                 PlayAndPresent(startPosition);
                 return;
             }
@@ -537,6 +784,33 @@ public sealed partial class MainWindow : Window
             }
 
             OpenFolder(nextFolder);
+        }
+        catch (Exception exception)
+        {
+            StatusText.Text = exception.Message;
+        }
+    }
+
+    private void PlayPreviousTrack()
+    {
+        try
+        {
+            UpdateCurrentCompletionStatus();
+            var startPosition = _playback.MovePreviousAndPlay(_settings.RemovePlayedTracks);
+            if (startPosition is null)
+            {
+                if (_currentFolderPath is null) return;
+                var previousFolder = _folderNavigator.MovePrevious(_currentFolderPath);
+                if (previousFolder is not null)
+                {
+                    OpenFolder(previousFolder);
+                    return;
+                }
+                StatusText.Text = "Beginning of the first sibling folder.";
+                return;
+            }
+            RefreshVisibleQueue();
+            PlayAndPresent(startPosition);
         }
         catch (Exception exception)
         {
@@ -588,10 +862,290 @@ public sealed partial class MainWindow : Window
         PlayPauseButton.Content = "Play";
     }
 
-    private TrackListItemViewModel? FindItem(Track track) =>
-        Tracks.FirstOrDefault(item => ReferenceEquals(item.Track, track));
+    private void UpdateCurrentCompletionStatus()
+    {
+        var current = _queue.Current;
+        if (current is null || _queue.IsCompleted(current) ||
+            !PlayedTrackPolicy.ShouldMarkCompleted(_settings, CurrentPlayedTime)) return;
+        _queue.MarkCurrentCompleted();
+        UpdatePlaybackStyles();
+    }
 
-    private void OnPositionTimerTick(object? sender, object e) => UpdateTimeDisplay();
+    private TimeSpan CurrentPlayedTime => _currentPlayedTime +
+        (_playbackClockStartedAt is DateTimeOffset started && _playback.IsPlaying
+            ? DateTimeOffset.UtcNow - started
+            : TimeSpan.Zero);
+
+    private void ResetPlaybackClock()
+    {
+        _currentPlayedTime = TimeSpan.Zero;
+        _playbackClockStartedAt = _playback.IsPlaying ? DateTimeOffset.UtcNow : null;
+    }
+
+    private void StartPlaybackClock()
+    {
+        if (_playbackClockStartedAt is null) _playbackClockStartedAt = DateTimeOffset.UtcNow;
+    }
+
+    private void StopPlaybackClock()
+    {
+        if (_playbackClockStartedAt is not DateTimeOffset started) return;
+        _currentPlayedTime += DateTimeOffset.UtcNow - started;
+        _playbackClockStartedAt = null;
+    }
+
+    private void ApplyPlaylistLayout(bool reorderQueue)
+    {
+        _settings.PlaylistLayout.EnsureValid();
+        BuildPlaylistHeaders();
+        foreach (var item in _itemsByTrack.Values)
+            item.ConfigureColumns(_settings.PlaylistLayout.Columns, _settings.PlaylistLayout.ColumnWidths);
+
+        if (reorderQueue) SortPlaylistAndRefresh();
+        else RefreshVisibleQueue();
+    }
+
+    private IEnumerable<TrackListItemViewModel> SortItems(IEnumerable<TrackListItemViewModel> items)
+    {
+        var layout = _settings.PlaylistLayout;
+        var sorter = new PlaylistSorter(layout.SortColumn, layout.SortDirection);
+        return items.OrderBy(item => item.Metadata, sorter);
+    }
+
+    private void SortPlaylistAndRefresh()
+    {
+        var ordered = SortItems(_queue.Tracks.Select(track => _itemsByTrack[track]))
+            .Select(item => item.Track)
+            .ToArray();
+        _queue.ReorderTracks(ordered);
+        RefreshVisibleQueue();
+    }
+
+    private void RefreshVisibleQueue()
+    {
+        _updatingSelection = true;
+        try
+        {
+            Tracks.Clear();
+            foreach (var track in _queue.VisibleTracks)
+            {
+                if (_itemsByTrack.TryGetValue(track, out var item)) Tracks.Add(item);
+            }
+            TrackList.SelectedItem = _queue.Current is not null ? FindItem(_queue.Current) : null;
+            if (TrackList.SelectedItem is not null) TrackList.ScrollIntoView(TrackList.SelectedItem);
+        }
+        finally
+        {
+            _updatingSelection = false;
+        }
+        UpdatePlaybackStyles();
+        ApplyPlaylistWidthsToViewport();
+    }
+
+    private void UpdatePlaybackStyles()
+    {
+        foreach (var (track, item) in _itemsByTrack)
+            item.SetPlaybackState(
+                _queue.IsCompleted(track),
+                ReferenceEquals(track, _queue.Current) && _playback.CurrentTrack is not null);
+    }
+
+    private void BuildPlaylistHeaders()
+    {
+        PlaylistHeaderPanel.Children.Clear();
+        _playlistHeaderContainers.Clear();
+        _playlistHeaderButtons.Clear();
+        foreach (var column in _settings.PlaylistLayout.Columns)
+        {
+            var width = _settings.PlaylistLayout.ColumnWidths[column];
+            var container = new Grid
+            {
+                Width = width,
+                Height = 36,
+                Background = new SolidColorBrush(ColorHelper.FromArgb(255, 41, 41, 41))
+            };
+            var button = new Button
+            {
+                Tag = column,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                Padding = new Thickness(8, 0, 8, 0),
+                Background = new SolidColorBrush(Colors.Transparent),
+                BorderThickness = new Thickness(0),
+                CornerRadius = new CornerRadius(0),
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+            };
+            button.Click += OnPlaylistHeaderClick;
+            container.Children.Add(button);
+
+            var resizeHandle = new Thumb
+            {
+                Tag = column,
+                Width = 12,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Background = new SolidColorBrush(Colors.Transparent)
+            };
+            ToolTipService.SetToolTip(resizeHandle, "Drag to resize column");
+            resizeHandle.DragStarted += OnColumnResizeStarted;
+            resizeHandle.DragDelta += OnColumnResizeDelta;
+            resizeHandle.DragCompleted += OnColumnResizeCompleted;
+            Canvas.SetZIndex(resizeHandle, 1);
+            container.Children.Add(resizeHandle);
+
+            var divider = new Border
+            {
+                Width = 1,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Background = new SolidColorBrush(ColorHelper.FromArgb(255, 82, 82, 82))
+            };
+            container.Children.Add(divider);
+
+            _playlistHeaderContainers[column] = container;
+            _playlistHeaderButtons[column] = button;
+            PlaylistHeaderPanel.Children.Add(container);
+        }
+        UpdatePlaylistHeaderLabels();
+        ApplyPlaylistWidthsToViewport();
+    }
+
+    private void UpdatePlaylistHeaderLabels()
+    {
+        var layout = _settings.PlaylistLayout;
+        foreach (var (column, button) in _playlistHeaderButtons)
+        {
+            var indicator = column == layout.SortColumn
+                ? layout.SortDirection == PlaylistSortDirection.Ascending ? " ▲" : " ▼"
+                : string.Empty;
+            button.Content = PlaylistColumns.Get(column).DisplayName + indicator;
+        }
+    }
+
+    private void OnPlaylistHeaderClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: PlaylistColumn column }) return;
+        var layout = _settings.PlaylistLayout;
+        if (layout.SortColumn == column)
+        {
+            layout.SortDirection = layout.SortDirection == PlaylistSortDirection.Ascending
+                ? PlaylistSortDirection.Descending
+                : PlaylistSortDirection.Ascending;
+        }
+        else
+        {
+            layout.SortColumn = column;
+            layout.SortDirection = PlaylistSortDirection.Ascending;
+        }
+
+        UpdatePlaylistHeaderLabels();
+        SortPlaylistAndRefresh();
+        SavePlaylistLayout("Playlist sort saved.");
+    }
+
+    private void OnColumnResizeStarted(object sender, DragStartedEventArgs e)
+    {
+        if (sender is not Thumb { Tag: PlaylistColumn column }) return;
+        _resizingColumn = column;
+        _resizeStartWidth = _playlistHeaderContainers.TryGetValue(column, out var header)
+            ? header.ActualWidth
+            : _settings.PlaylistLayout.ColumnWidths[column];
+    }
+
+    private void OnColumnResizeDelta(object sender, DragDeltaEventArgs e)
+    {
+        if (_resizingColumn is not PlaylistColumn column) return;
+        var definition = PlaylistColumns.Get(column);
+        _resizeStartWidth = Math.Clamp(_resizeStartWidth + e.HorizontalChange, definition.MinimumWidth, 1200);
+        var width = _resizeStartWidth;
+        _settings.PlaylistLayout.ColumnWidths[column] = width;
+        ApplyPlaylistWidthsToViewport();
+    }
+
+    private void OnColumnResizeCompleted(object sender, DragCompletedEventArgs e)
+    {
+        FinishColumnResize();
+    }
+
+    private void FinishColumnResize()
+    {
+        if (_resizingColumn is null) return;
+        _resizingColumn = null;
+        SavePlaylistLayout("Playlist column width saved.");
+    }
+
+    private void ApplyColumnWidth(PlaylistColumn column, double width)
+    {
+        if (_playlistHeaderContainers.TryGetValue(column, out var header)) header.Width = width;
+        foreach (var item in _itemsByTrack.Values) item.SetColumnWidth(column, width);
+    }
+
+    private void OnPlaylistViewportSizeChanged(object sender, SizeChangedEventArgs e) =>
+        ApplyPlaylistWidthsToViewport();
+
+    private void ApplyPlaylistWidthsToViewport()
+    {
+        var columns = _settings.PlaylistLayout.Columns;
+        if (columns.Count == 0) return;
+        var configuredTotal = columns.Sum(column => _settings.PlaylistLayout.ColumnWidths[column]);
+        var viewportWidth = Math.Max(0, PlaylistHeaderScrollViewer.ActualWidth - 2);
+        var extra = Math.Max(0, viewportWidth - configuredTotal);
+        for (var index = 0; index < columns.Count; index++)
+        {
+            var column = columns[index];
+            var width = _settings.PlaylistLayout.ColumnWidths[column];
+            if (index == columns.Count - 1) width += extra;
+            ApplyColumnWidth(column, width);
+        }
+    }
+
+    private void SavePlaylistLayout(string status)
+    {
+        try
+        {
+            _settingsStore.Save(_settings);
+            StatusText.Text = status;
+        }
+        catch (Exception exception)
+        {
+            StatusText.Text = $"Could not save playlist layout: {exception.Message}";
+        }
+    }
+
+    private void OnTrackListLoaded(object sender, RoutedEventArgs e)
+    {
+        var scrollViewer = FindDescendant<ScrollViewer>(TrackList);
+        if (ReferenceEquals(scrollViewer, _trackListScrollViewer)) return;
+        if (_trackListScrollViewer is not null) _trackListScrollViewer.ViewChanged -= OnTrackListViewChanged;
+        _trackListScrollViewer = scrollViewer;
+        if (_trackListScrollViewer is not null) _trackListScrollViewer.ViewChanged += OnTrackListViewChanged;
+    }
+
+    private void OnTrackListViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
+    {
+        if (_trackListScrollViewer is null) return;
+        PlaylistHeaderScrollViewer.ChangeView(_trackListScrollViewer.HorizontalOffset, null, null, true);
+    }
+
+    private static T? FindDescendant<T>(DependencyObject parent) where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, index);
+            if (child is T match) return match;
+            var descendant = FindDescendant<T>(child);
+            if (descendant is not null) return descendant;
+        }
+        return null;
+    }
+
+    private TrackListItemViewModel? FindItem(Track track) =>
+        _itemsByTrack.GetValueOrDefault(track);
+
+    private void OnPositionTimerTick(object? sender, object e)
+    {
+        UpdateCurrentCompletionStatus();
+        UpdateTimeDisplay();
+    }
 
     private void UpdateTimeDisplay()
     {
@@ -646,12 +1200,41 @@ public sealed partial class MainWindow : Window
 
     private void OnClosed(object sender, WindowEventArgs args)
     {
+        SavePlaylistSession();
         _positionTimer.Stop();
         _metadataCancellation?.Cancel();
         _metadataCancellation?.Dispose();
         _waveformCancellation?.Cancel();
         _waveformCancellation?.Dispose();
         _player.Dispose();
+    }
+
+    private void SavePlaylistSession()
+    {
+        try
+        {
+            var playlistTracks = _queue.Tracks;
+            if (string.IsNullOrWhiteSpace(_currentFolderPath) || playlistTracks.Count == 0)
+            {
+                _settings.PlaylistSession.Clear();
+            }
+            else
+            {
+                _settings.PlaylistSession.FolderPath = _currentFolderPath;
+                _settings.PlaylistSession.CurrentTrackPath = _queue.Current?.FilePath;
+                _settings.PlaylistSession.PlaylistFiles = playlistTracks
+                    .Select(track => track.FilePath)
+                    .ToList();
+                _settings.PlaylistSession.CompletedFiles = _queue.Completed
+                    .Select(track => track.FilePath)
+                    .ToList();
+            }
+            _settingsStore.Save(_settings);
+        }
+        catch (Exception)
+        {
+            // The window is already closing, so there is no safe surface for an error dialog.
+        }
     }
 
     private static string FormatPosition(TimeSpan position) =>

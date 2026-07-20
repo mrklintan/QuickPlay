@@ -28,6 +28,20 @@ public sealed class GeneralSettingsDialog
         Maximum = 600,
         SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact
     };
+    private readonly ToggleSwitch _removePlayedTracksToggle = new()
+    {
+        Header = "Remove played tracks from playlist",
+        OnContent = "On",
+        OffContent = "Off"
+    };
+    private readonly NumberBox _playedThresholdBox = new()
+    {
+        Header = "Mark as played after (seconds)",
+        Description = "Played tracks use normal text. Tracks left sooner stay bold.",
+        Minimum = 0,
+        Maximum = 86400,
+        SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact
+    };
     private readonly TextBlock _validationText = new()
     {
         Foreground = new SolidColorBrush(Microsoft.UI.Colors.OrangeRed),
@@ -47,6 +61,8 @@ public sealed class GeneralSettingsDialog
         _auditionPositionBox.Text = FormatPosition(settings.AuditionStartPosition);
         _shortSeekBox.Value = settings.ShortSeekSeconds;
         _longSeekBox.Value = settings.LongSeekSeconds;
+        _removePlayedTracksToggle.IsOn = settings.RemovePlayedTracks;
+        _playedThresholdBox.Value = settings.PlayedThresholdSeconds;
         _dialog.Content = BuildContent();
     }
 
@@ -63,6 +79,8 @@ public sealed class GeneralSettingsDialog
         settings.AuditionStartPosition = _validatedAuditionPosition;
         settings.ShortSeekSeconds = _shortSeekBox.Value;
         settings.LongSeekSeconds = _longSeekBox.Value;
+        settings.RemovePlayedTracks = _removePlayedTracksToggle.IsOn;
+        settings.PlayedThresholdSeconds = _playedThresholdBox.Value;
     }
 
     private UIElement BuildContent()
@@ -77,6 +95,14 @@ public sealed class GeneralSettingsDialog
         Grid.SetColumn(_longSeekBox, 1);
         seekGrid.Children.Add(_longSeekBox);
         layout.Children.Add(seekGrid);
+        layout.Children.Add(new Border
+        {
+            Height = 1,
+            Background = new SolidColorBrush(Microsoft.UI.Colors.DimGray),
+            Margin = new Thickness(0, 2, 0, 2)
+        });
+        layout.Children.Add(_removePlayedTracksToggle);
+        layout.Children.Add(_playedThresholdBox);
         layout.Children.Add(_validationText);
         return layout;
     }
@@ -94,6 +120,13 @@ public sealed class GeneralSettingsDialog
             _shortSeekBox.Value <= 0 || _longSeekBox.Value <= 0)
         {
             _validationText.Text = "Seek durations must be positive.";
+            args.Cancel = true;
+            return;
+        }
+
+        if (double.IsNaN(_playedThresholdBox.Value) || _playedThresholdBox.Value < 0)
+        {
+            _validationText.Text = "The played threshold must be zero seconds or more.";
             args.Cancel = true;
         }
     }

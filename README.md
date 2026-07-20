@@ -1,5 +1,9 @@
 # QuickPlay
 
+<p align="center">
+  <img src="src/QuickPlay.WinUI/Assets/QuickPlay.png" width="192" height="192" alt="QuickPlay application icon" />
+</p>
+
 <img width="1920" height="1020" alt="image" src="https://github.com/user-attachments/assets/a674f3b1-9568-43a3-9cf9-3344b1cfbd58" />
 
 QuickPlay is a Windows 11 / WinUI 3 desktop application for rapidly auditioning audio tracks. Open or drop a music folder, inspect metadata and a clickable waveform, and move through tracks or sibling folders without interrupting your workflow.
@@ -25,6 +29,12 @@ The project is published openly as both a useful audio tool and a practical exam
 - Clickable waveform seeking and current/total time display.
 - Metadata display for artist, title, BPM, musical key, Mixed In Key Energy, and duration, including AIFF/AIF support.
 - Playback and waveform analysis for audio files stored at Windows paths that are 260 characters or longer.
+- Customizable playlist columns with persistent visibility, order, widths, and sorting.
+- Natural, numeric-aware playlist sorting with the current track pinned visually.
+- Clear playlist state: unplayed tracks are bold, played tracks are normal, and the active track is italic.
+- Independent played-time threshold and optional removal of played tracks.
+- Playlist context actions for toggling a track between played and unplayed or marking every track as unplayed.
+- The current folder, remaining playlist, and active row are restored after restart without starting playback automatically.
 - End-of-folder playback continues with the first supported track in the next sibling folder without wrapping.
 - Native File, Settings, and About menus.
 - Separate general playback and keyboard shortcut settings dialogs.
@@ -54,6 +64,8 @@ Before building QuickPlay:
 
 The final expected path is `src/Bass/x64/bass.dll`. The `QuickPlay.WinUI` project copies that DLL beside the application executable during build.
 
+At runtime, QuickPlay checks that the 64-bit `bass.dll` can be loaded. If it is missing or incompatible, the application shows a clear message with the official download address and asks whether to open that page.
+
 ## Prebuilt Windows x64 release
 
 The GitHub Releases page provides a ready-to-run, self-contained Windows x64 ZIP. It includes the QuickPlay executable, the required .NET and Windows App SDK runtime files, `bass.dll`, and all applicable licence and third-party notices.
@@ -73,6 +85,20 @@ Requirements:
 
 Open `QuickPlay.sln`, select `QuickPlay.WinUI` as the startup project, choose the `x64` platform, and press F5.
 
+To create the complete self-contained Windows x64 Release used for distribution:
+
+```powershell
+dotnet publish .\src\QuickPlay.WinUI\QuickPlay.WinUI.csproj -c Release -r win-x64 --self-contained true -p:Platform=x64
+```
+
+The executable and all required runtime files are written to:
+
+```text
+src\QuickPlay.WinUI\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish
+```
+
+Close QuickPlay before publishing so Windows does not lock the executable. The project publish target automatically includes the generated WinUI `.xbf` and `.pri` resources required at startup.
+
 To run the behavior checks:
 
 ```powershell
@@ -81,6 +107,7 @@ dotnet run --project tests\QuickPlay.Tests\QuickPlay.Tests.csproj
 
 ## Keyboard defaults
 
+- Ctrl+O: open a folder.
 - Up/Down: previous/next track.
 - Left/Right: seek backward/forward 5 seconds.
 - Shift+Left/Right: seek backward/forward 30 seconds.
@@ -89,9 +116,17 @@ dotnet run --project tests\QuickPlay.Tests\QuickPlay.Tests.csproj
 - Ctrl+C: copy the active audio file.
 - Delete: confirm and move the active track to the Recycle Bin.
 
-Shortcut assignments can be changed from **Settings → Keyboard**. Audition Start Position and short/long seek durations are available under **Settings → Settings**. If a new shortcut is already in use, QuickPlay asks whether to move it; the previous action then becomes unassigned.
+Shortcut assignments can be changed from **Settings → Keyboard**. Audition Start Position, short/long seek durations, **Mark as played after (seconds)**, and the independent **Remove played tracks from playlist** switch are available under **Settings → Settings**. This switch only removes rows from the in-memory playlist; it never deletes audio files. Played time is measured as actual playback time and supports long values such as 600 seconds. If removal is disabled, played tracks remain in the playlist in normal text. If a new shortcut is already in use, QuickPlay asks whether to move it; the previous action then becomes unassigned.
 
-## Known issue in version 1.1
+## Playlist layout and playback queue
+
+Artist and Title are always the first two playlist columns. Use **Settings → Playlist Columns...** to add, remove, or reorder optional metadata columns. Drag a column-header divider to resize it, and click a header to toggle ascending or descending sorting. Column visibility, order, widths, sort column, and sort direction are saved in the existing QuickPlay settings file.
+
+All newly loaded tracks start in bold text, meaning that they are waiting to be played. The active track stays pinned at the top and is always italic. After the configured playback time it becomes played and changes to normal weight while remaining italic. When moving on, the previous track is appended to the end without re-sorting; if **Remove played tracks from playlist** is enabled and that track is played, its row is removed instead. The audio file remains untouched. Up and Down search in their respective direction for the next bold track and skip normal tracks. A normal track can still be replayed by clicking it directly. Right-click a row to use **Mark as Played** or **Mark as Unplayed**, depending on its current status. **Mark All as Unplayed** is always available. Explicit column sorting pins the active track and sorts the remaining rows.
+
+QuickPlay saves the current folder, active row, and remaining playlist during a normal shutdown. On the next launch it restores the playlist without autoplay. Missing files are reported; if the folder is unavailable or no saved tracks can be loaded, QuickPlay continues with an empty playlist and the default column layout.
+
+## Known issue
 
 After using the application menu, keyboard focus can remain in a state where arrow keys affect both menu/list navigation and playback. Clicking the track list restores the expected playback shortcut behavior. This is tracked in [TODO.md](TODO.md) for a future focus-routing fix.
 

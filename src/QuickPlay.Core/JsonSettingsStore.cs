@@ -16,7 +16,11 @@ public sealed class JsonSettingsStore(string filePath) : ISettingsStore
             settings.EnsureDefaults();
             return settings;
         }
-        catch (JsonException)
+        catch (Exception exception) when (exception is JsonException or
+                                                   NotSupportedException or
+                                                   ArgumentException or
+                                                   IOException or
+                                                   UnauthorizedAccessException)
         {
             return new ApplicationSettings();
         }

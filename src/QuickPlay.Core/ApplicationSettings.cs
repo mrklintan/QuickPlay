@@ -6,6 +6,7 @@ public sealed class ApplicationSettings
     private TimeSpan _auditionStartPosition = DefaultAuditionStartPosition;
     private double _shortSeekSeconds = 5;
     private double _longSeekSeconds = 30;
+    private double _playedThresholdSeconds = 5;
 
     public TimeSpan AuditionStartPosition
     {
@@ -31,12 +32,28 @@ public sealed class ApplicationSettings
             : throw new ArgumentOutOfRangeException(nameof(value), "Long seek must be positive.");
     }
 
+    public bool RemovePlayedTracks { get; set; } = true;
+
+    public double PlayedThresholdSeconds
+    {
+        get => _playedThresholdSeconds;
+        set => _playedThresholdSeconds = value >= 0
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(value), "Played threshold cannot be negative.");
+    }
+
     public Dictionary<ApplicationCommand, ShortcutGesture> Shortcuts { get; set; } = ShortcutDefaults.Create();
+    public PlaylistLayoutSettings PlaylistLayout { get; set; } = new();
+    public PlaylistSessionSettings PlaylistSession { get; set; } = new();
 
     public void EnsureDefaults()
     {
         Shortcuts ??= [];
         foreach (var assignment in ShortcutDefaults.Create())
             Shortcuts.TryAdd(assignment.Key, assignment.Value);
+        PlaylistLayout ??= new PlaylistLayoutSettings();
+        PlaylistLayout.EnsureValid();
+        PlaylistSession ??= new PlaylistSessionSettings();
+        PlaylistSession.EnsureValid();
     }
 }

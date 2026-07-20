@@ -8,6 +8,10 @@ internal static class Program
         {
             (nameof(AuditionPositionPolicyTests), AuditionPositionPolicyTests.Run),
             (nameof(BassFilePathTests), BassFilePathTests.Run),
+            (nameof(PlaylistLayoutSettingsTests), PlaylistLayoutSettingsTests.Run),
+            (nameof(NaturalSortingTests), NaturalSortingTests.Run),
+            (nameof(PlaybackQueueTests), PlaybackQueueTests.Run),
+            (nameof(PlayedTrackPolicyTests), PlayedTrackPolicyTests.Run),
             (nameof(PlaybackControllerTests), PlaybackControllerTests.Run),
             (nameof(SettingsTests), SettingsTests.Run),
             (nameof(TrackCatalogTests), TrackCatalogTests.Run),
