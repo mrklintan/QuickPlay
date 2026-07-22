@@ -1,0 +1,7 @@
+<WixLocalization xmlns="http://wixtoolset.org/schemas/v4/wxl" Culture="en-US">
+  <String Id="WelcomeDlgTitle" Overridable="yes" Value="{\WixUI_Font_Bigger}Welcome to [ProductName] installer version [ProductVersion]" />
+  <String Id="PrepareDlgTitle" Overridable="yes" Value="{\WixUI_Font_Bigger}Welcome to [ProductName] installer version [ProductVersion]" />
+  <String Id="WelcomeEulaDlgTitle" Overridable="yes" Value="{\WixUI_Font_Title}Welcome to [ProductName] installer version [ProductVersion]" />
+  <String Id="ExitDialogTitle" Overridable="yes" Value="{\WixUI_Font_Bigger}[ProductName] version [ProductVersion] is installed." />
+  <String Id="ExitDialogDescription" Overridable="yes" Value="Click Finish to close the installer." />
+</WixLocalization>
