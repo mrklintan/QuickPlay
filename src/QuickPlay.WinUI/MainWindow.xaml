@@ -58,6 +58,8 @@
                 <MenuFlyoutItem Text="Playlist Columns..." Click="OnPlaylistColumnsSettings" />
             </MenuBarItem>
             <MenuBarItem Title="About">
+                <MenuFlyoutItem Text="Check for Updates" Click="OnCheckForUpdates" />
+                <MenuFlyoutSeparator />
                 <MenuFlyoutItem Text="About QuickPlay..." Click="OnAbout" />
             </MenuBarItem>
         </MenuBar>

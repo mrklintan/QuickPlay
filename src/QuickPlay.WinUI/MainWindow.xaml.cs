@@ -32,6 +32,8 @@ public sealed partial class MainWindow : Window
     private readonly ShellFileService _shellFileService = new();
     private readonly ExplorerFileSelector _explorerFileSelector = new();
     private readonly PlaylistRestoreLogWriter _restoreLogWriter = new();
+    private readonly HttpClient _updateHttpClient = new() { Timeout = TimeSpan.FromSeconds(30) };
+    private readonly GitHubUpdateService _updateService;
     private readonly AudioPlayer _player;
     private readonly PlaybackController _playback;
     private readonly IWaveformAnalyzer _waveformAnalyzer = new BassWaveformAnalyzer();
@@ -56,6 +58,7 @@ public sealed partial class MainWindow : Window
     private bool _playlistReadyForNavigation;
     private bool _naturalEndHandled;
     private bool _pausedByUser;
+    private bool _updateCheckInProgress;
 
     public ObservableCollection<TrackListItemViewModel> Tracks { get; } = [];
 
@@ -73,6 +76,7 @@ public sealed partial class MainWindow : Window
         _settingsStore = new JsonSettingsStore(settingsPath);
         _settings = _settingsStore.Load();
         _shortcutManager = new ShortcutManager(_settings);
+        _updateService = new GitHubUpdateService(_updateHttpClient);
         _player = new AudioPlayer(new BassAudioBackend());
         _playback = new PlaybackController(_queue, _player, _settings);
         _positionTimer.Tick += OnPositionTimerTick;
@@ -117,7 +121,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var loadedCount = OpenFolder(
+        var loadedCount = await OpenFolderAsync(
             folderPath,
             autoPlay: false,
             session.PlaylistFiles,
@@ -227,7 +231,7 @@ public sealed partial class MainWindow : Window
             picker.FileTypeFilter.Add("*");
             InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
             var folder = await picker.PickSingleFolderAsync();
-            if (folder is not null) OpenFolder(folder.Path);
+            if (folder is not null) await OpenFolderAsync(folder.Path);
         }
         finally
         {
@@ -255,7 +259,7 @@ public sealed partial class MainWindow : Window
                 StatusText.Text = "Drop a folder, not individual files.";
                 return;
             }
-            OpenFolder(folder.Path);
+            await OpenFolderAsync(folder.Path);
         }
         catch (Exception exception)
         {
@@ -635,7 +639,7 @@ public sealed partial class MainWindow : Window
         UpdatePlayhead();
     }
 
-    private int OpenFolder(
+    private async Task<int> OpenFolderAsync(
         string folderPath,
         bool autoPlay = true,
         IReadOnlyList<string>? savedPlaylist = null,
@@ -643,6 +647,8 @@ public sealed partial class MainWindow : Window
         IReadOnlyList<string>? savedCompletedFiles = null,
         TimeSpan? autoPlayStartPosition = null)
     {
+        ContentDialog? loadingDialog = null;
+        Task? loadingDialogTask = null;
         try
         {
             _player.Stop();
@@ -697,13 +703,53 @@ public sealed partial class MainWindow : Window
                 StatusText.Text = "No supported audio files were found in that folder.";
                 return 0;
             }
+            TextBlock? loadingText = null;
+            ProgressBar? loadingProgress = null;
+            if (FolderLoadingPolicy.ShouldShowProgress(tracks.Count))
+            {
+                loadingText = new TextBlock
+                {
+                    Text = $"Loading track 0 of {tracks.Count}",
+                    TextWrapping = TextWrapping.Wrap
+                };
+                loadingProgress = new ProgressBar
+                {
+                    Minimum = 0,
+                    Maximum = tracks.Count,
+                    Value = 0,
+                    IsIndeterminate = false,
+                    Width = 420
+                };
+                loadingDialog = new ContentDialog
+                {
+                    XamlRoot = RootGrid.XamlRoot,
+                    Title = "Loading tracks...",
+                    Content = new StackPanel
+                    {
+                        Spacing = 12,
+                        Children = { loadingText, loadingProgress }
+                    }
+                };
+                _dialogOpen = true;
+                loadingDialogTask = ShowDialogUntilHiddenAsync(loadingDialog);
+                await Task.Yield();
+            }
             StatusText.Text = $"{tracks.Count} tracks found. Loading metadata…";
             if (!autoPlay)
             {
                 ResetNowPlaying();
                 UpdateTimeDisplay();
             }
-            _ = LoadMetadataAsync(items, _metadataCancellation.Token, autoPlay, autoPlayStartPosition);
+            await LoadMetadataAsync(
+                items,
+                _metadataCancellation.Token,
+                autoPlay,
+                autoPlayStartPosition,
+                completed =>
+                {
+                    if (loadingText is not null) loadingText.Text = $"Loading track {completed} of {tracks.Count}";
+                    if (loadingProgress is not null) loadingProgress.Value = completed;
+                });
             return tracks.Count;
         }
         catch (Exception exception)
@@ -711,24 +757,183 @@ public sealed partial class MainWindow : Window
             StatusText.Text = exception.Message;
             return 0;
         }
+        finally
+        {
+            if (loadingDialog is not null)
+            {
+                loadingDialog.Hide();
+                if (loadingDialogTask is not null)
+                {
+                    try { await loadingDialogTask; }
+                    catch (Exception) { }
+                }
+                _dialogOpen = false;
+                FocusPlaybackSurface();
+            }
+        }
     }
+
+    private async void OnCheckForUpdates(object sender, RoutedEventArgs e)
+    {
+        if (_updateCheckInProgress) return;
+        _updateCheckInProgress = true;
+        var closingForUpdate = false;
+        try
+        {
+            var installedVersion = ReleaseVersion.Parse(
+                typeof(MainWindow).Assembly.GetName().Version?.ToString(4) ?? "0.0.0.0");
+            StatusText.Text = "Checking for updates...";
+            var update = await _updateService.CheckAsync(installedVersion);
+            if (!update.IsUpdateAvailable)
+            {
+                await ShowUpdateMessageAsync(
+                    "QuickPlay is up to date",
+                    $"Installed version: {installedVersion}\nLatest version: {update.AvailableVersion}");
+                StatusText.Text = "QuickPlay is up to date.";
+                return;
+            }
+            if (update.MsiAsset is null)
+            {
+                await ShowUpdateMessageAsync(
+                    "Update unavailable",
+                    $"Version {update.AvailableVersion} is available, but its x64 MSI installer could not be found.");
+                StatusText.Text = "The latest release does not contain an x64 MSI installer.";
+                return;
+            }
+
+            var confirmation = new ContentDialog
+            {
+                XamlRoot = RootGrid.XamlRoot,
+                Title = "A new version of QuickPlay is available",
+                PrimaryButtonText = "Download and Install",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Primary,
+                Content = new TextBlock
+                {
+                    Text = $"Installed version: {installedVersion}\nAvailable version: {update.AvailableVersion}",
+                    TextWrapping = TextWrapping.Wrap
+                }
+            };
+            _dialogOpen = true;
+            ContentDialogResult confirmationResult;
+            try { confirmationResult = await confirmation.ShowAsync(); }
+            finally { _dialogOpen = false; }
+            if (confirmationResult != ContentDialogResult.Primary)
+            {
+                StatusText.Text = "Update cancelled.";
+                return;
+            }
+
+            var msiPath = await DownloadUpdateWithProgressAsync(update.MsiAsset);
+            var installerProcess = MsiInstallerLauncher.Start(msiPath);
+            installerProcess.Dispose();
+
+            var handoff = new ContentDialog
+            {
+                XamlRoot = RootGrid.XamlRoot,
+                Title = "QuickPlay installer started",
+                CloseButtonText = "OK",
+                DefaultButton = ContentDialogButton.Close,
+                Content = new TextBlock
+                {
+                    Text = "The QuickPlay installer has been started.\n\nIt may be open behind this window. Click OK to close QuickPlay, then complete the installation in the installer window.\n\nWhen installation is finished, start QuickPlay again from the Start menu.",
+                    TextWrapping = TextWrapping.Wrap,
+                    MaxWidth = 520
+                }
+            };
+            _dialogOpen = true;
+            try { await handoff.ShowAsync(); }
+            finally { _dialogOpen = false; }
+            closingForUpdate = true;
+            Close();
+        }
+        catch (Exception exception)
+        {
+            StatusText.Text = "Update check failed.";
+            await ShowUpdateMessageAsync(
+                "Could not check for updates",
+                $"QuickPlay could not complete the update check.\n\n{exception.Message}");
+        }
+        finally
+        {
+            _updateCheckInProgress = false;
+            if (!closingForUpdate && !_dialogOpen) FocusPlaybackSurface();
+        }
+    }
+
+    private async Task<string> DownloadUpdateWithProgressAsync(UpdateAsset asset)
+    {
+        var dialog = new ContentDialog
+        {
+            XamlRoot = RootGrid.XamlRoot,
+            Title = "Downloading update...",
+            Content = new StackPanel
+            {
+                Spacing = 12,
+                Children =
+                {
+                    new TextBlock { Text = asset.Name, TextWrapping = TextWrapping.Wrap },
+                    new ProgressBar { IsIndeterminate = true, Width = 420 }
+                }
+            }
+        };
+        _dialogOpen = true;
+        var dialogTask = ShowDialogUntilHiddenAsync(dialog);
+        await Task.Yield();
+        try
+        {
+            StatusText.Text = $"Downloading {asset.Name}...";
+            return await _updateService.DownloadMsiAsync(asset);
+        }
+        finally
+        {
+            dialog.Hide();
+            try { await dialogTask; } catch (Exception) { }
+            _dialogOpen = false;
+        }
+    }
+
+    private async Task ShowUpdateMessageAsync(string title, string message)
+    {
+        var dialog = new ContentDialog
+        {
+            XamlRoot = RootGrid.XamlRoot,
+            Title = title,
+            CloseButtonText = "OK",
+            DefaultButton = ContentDialogButton.Close,
+            Content = new TextBlock
+            {
+                Text = message,
+                TextWrapping = TextWrapping.Wrap,
+                MaxWidth = 520
+            }
+        };
+        _dialogOpen = true;
+        try { await dialog.ShowAsync(); }
+        finally { _dialogOpen = false; }
+    }
+
+    private static async Task ShowDialogUntilHiddenAsync(ContentDialog dialog) => await dialog.ShowAsync();
 
     private async Task LoadMetadataAsync(
         IReadOnlyList<TrackListItemViewModel> items,
         CancellationToken cancellationToken,
         bool autoPlay = false,
-        TimeSpan? autoPlayStartPosition = null)
+        TimeSpan? autoPlayStartPosition = null,
+        Action<int>? reportProgress = null)
     {
         try
         {
             var current = _queue.Current;
             var ordered = items.OrderByDescending(item => ReferenceEquals(item.Track, current));
+            var completed = 0;
             foreach (var item in ordered)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var metadata = await _metadataReader.ReadAsync(item.Track.FilePath, cancellationToken);
                 item.ApplyMetadata(metadata);
                 if (ReferenceEquals(item.Track, _queue.Current)) UpdateNowPlaying(item);
+                reportProgress?.Invoke(++completed);
             }
             SortPlaylistAndRefresh();
             _playlistReadyForNavigation = true;
@@ -752,16 +957,16 @@ public sealed partial class MainWindow : Window
                 TogglePlayPause();
                 break;
             case ApplicationCommand.PreviousTrack:
-                PlayPreviousTrack();
+                await PlayPreviousTrackAsync();
                 break;
             case ApplicationCommand.NextTrack:
-                PlayNextTrack();
+                await PlayNextTrackAsync();
                 break;
             case ApplicationCommand.PreviousFolder:
-                NavigateSiblingFolder(next: false);
+                await NavigateSiblingFolderAsync(next: false);
                 break;
             case ApplicationCommand.NextFolder:
-                NavigateSiblingFolder(next: true);
+                await NavigateSiblingFolderAsync(next: true);
                 break;
             case ApplicationCommand.SeekBackwardShort:
                 SeekAndPresent(TimeSpan.FromSeconds(-_settings.ShortSeekSeconds));
@@ -902,7 +1107,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void NavigateSiblingFolder(bool next)
+    private async Task NavigateSiblingFolderAsync(bool next)
     {
         if (_currentFolderPath is null) return;
         try
@@ -912,7 +1117,7 @@ public sealed partial class MainWindow : Window
                 : _folderNavigator.MovePrevious(_currentFolderPath);
             if (folder is not null)
             {
-                OpenFolder(folder);
+                await OpenFolderAsync(folder);
                 return;
             }
 
@@ -926,7 +1131,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void PlayNextTrack()
+    private async Task PlayNextTrackAsync()
     {
         try
         {
@@ -948,7 +1153,7 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
-            OpenFolder(nextFolder);
+            await OpenFolderAsync(nextFolder);
         }
         catch (Exception exception)
         {
@@ -963,7 +1168,7 @@ public sealed partial class MainWindow : Window
         return false;
     }
 
-    private void HandleNaturalEnd()
+    private async void HandleNaturalEnd()
     {
         if (_naturalEndHandled || !_playlistReadyForNavigation || _playback.CurrentTrack is null)
             return;
@@ -1006,7 +1211,7 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
-            OpenFolder(
+            await OpenFolderAsync(
                 nextFolder,
                 autoPlay: true,
                 autoPlayStartPosition: _settings.ContinuePlayStartPosition);
@@ -1017,7 +1222,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void PlayPreviousTrack()
+    private async Task PlayPreviousTrackAsync()
     {
         try
         {
@@ -1030,7 +1235,7 @@ public sealed partial class MainWindow : Window
                 var previousFolder = _folderNavigator.MovePrevious(_currentFolderPath);
                 if (previousFolder is not null)
                 {
-                    OpenFolder(previousFolder);
+                    await OpenFolderAsync(previousFolder);
                     return;
                 }
                 StatusText.Text = "Beginning of the first sibling folder.";
@@ -1432,6 +1637,7 @@ public sealed partial class MainWindow : Window
         _metadataCancellation?.Dispose();
         _waveformCancellation?.Cancel();
         _waveformCancellation?.Dispose();
+        _updateHttpClient.Dispose();
         _player.Dispose();
     }
 

@@ -18,6 +18,7 @@ internal static class Program
             (nameof(TrackCatalogTests), TrackCatalogTests.Run),
             (nameof(PlaylistRestoreLogTests), PlaylistRestoreLogTests.Run),
             (nameof(ExplorerFileSelectorTests), ExplorerFileSelectorTests.Run),
+            (nameof(ReleaseUpdateTests), ReleaseUpdateTests.Run),
             (nameof(TrackNavigatorBoundaryTests), TrackNavigatorBoundaryTests.Run),
             (nameof(FolderNavigatorTests), FolderNavigatorTests.Run),
             (nameof(MetadataTests), MetadataTests.Run),

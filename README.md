@@ -45,6 +45,8 @@ The project is published openly as both a useful audio tool and a practical exam
 - Safe fallback when a track is shorter than the audition position.
 - Copy the active file or move it to the Windows Recycle Bin.
 - Recursively load supported audio from subfolders while keeping the explicitly opened folder as the sibling-navigation root.
+- Determinate track progress for folders containing more than 100 supported audio files, including restored and automatically opened folders.
+- Built-in update checking from **About → Check for Updates**, with an interactive x64 MSI handoff for newer GitHub releases.
 - Open File Explorer with the current audio file selected.
 - Clear the current playlist and return to the no-folder-open state after confirmation.
 
@@ -111,7 +113,9 @@ To build the per-user x64 MSI (including a fresh complete publish):
 dotnet build .\installer\QuickPlay.Installer\QuickPlay.Installer.wixproj -c Release -p:Platform=x64
 ```
 
-The installer is written to `installer\QuickPlay.Installer\bin\x64\Release\QuickPlay-1.3.0.0-x64.msi`. Double-click it for the normal interactive setup: review and accept the MIT and third-party terms, install, then close the completion confirmation. It installs without elevation under `%LOCALAPPDATA%\Programs\QuickPlay`, creates a Start Menu shortcut named **QuickPlay**, and supports standard uninstall and future major upgrades.
+The installer is written to `installer\QuickPlay.Installer\bin\x64\Release\QuickPlay-1.3.1.0-x64.msi`. Double-click it for the normal interactive setup: review and accept the MIT and third-party terms, install, then close the completion confirmation. It installs without elevation under `%LOCALAPPDATA%\Programs\QuickPlay`, creates a Start Menu shortcut named **QuickPlay**, and supports standard uninstall and future major upgrades.
+
+Use **About → Check for Updates** to compare the installed version with the latest GitHub release. When a newer release is available, QuickPlay downloads its x64 MSI to a temporary folder and starts the normal interactive installer. QuickPlay closes only after you acknowledge the handoff message; complete the installer separately and then restart QuickPlay from the Start menu.
 
 See [Code signing](docs/CODE_SIGNING.md) for the self-signed development workflow. A self-signed certificate is not automatically trusted on other computers.
 
