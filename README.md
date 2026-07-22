@@ -4,7 +4,8 @@
   <img src="src/QuickPlay.WinUI/Assets/QuickPlay.png" width="192" height="192" alt="QuickPlay application icon" />
 </p>
 
-<img width="1920" height="1020" alt="image" src="https://github.com/user-attachments/assets/a674f3b1-9568-43a3-9cf9-3344b1cfbd58" />
+<img width="1920" height="1020" alt="image" src="https://github.com/user-attachments/assets/c159db01-786f-4c17-93f7-0d2af7dd236b" />
+
 
 QuickPlay is a Windows 11 / WinUI 3 desktop application for rapidly auditioning audio tracks. Open or drop a music folder, inspect metadata and a clickable waveform, and move through tracks or sibling folders without interrupting your workflow.
 
