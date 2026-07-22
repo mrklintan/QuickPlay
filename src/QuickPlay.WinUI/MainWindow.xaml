@@ -26,36 +26,41 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <StackPanel Spacing="8">
-            <MenuBar Margin="-10,0,0,0">
-                <MenuBarItem Title="File">
-                    <MenuFlyoutItem Text="Open Folder..." KeyboardAcceleratorTextOverride="Ctrl+O" Click="OnChooseFolder" />
-                    <MenuFlyoutSeparator />
-                    <MenuFlyoutItem Text="Exit" Click="OnExit" />
-                </MenuBarItem>
-                <MenuBarItem Title="Settings">
-                    <MenuFlyoutItem Text="Settings..." Click="OnGeneralSettings" />
-                    <MenuFlyoutItem Text="Keyboard..." Click="OnShortcutSettings" />
-                    <MenuFlyoutItem Text="Playlist Columns..." Click="OnPlaylistColumnsSettings" />
-                </MenuBarItem>
-                <MenuBarItem Title="About">
-                    <MenuFlyoutItem Text="About QuickPlay..." Click="OnAbout" />
-                </MenuBarItem>
-            </MenuBar>
-
-            <Grid ColumnSpacing="16">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <TextBlock VerticalAlignment="Center" FontSize="28" FontWeight="SemiBold" Text="QuickPlay" />
-                <StackPanel Grid.Column="1" VerticalAlignment="Center" Orientation="Horizontal" Spacing="8">
-                    <Button Content="Previous" Click="OnPrevious" />
-                    <Button x:Name="PlayPauseButton" Content="Pause" Click="OnPlayPause" />
-                    <Button Content="Next" Click="OnNext" />
-                </StackPanel>
-            </Grid>
-        </StackPanel>
+        <MenuBar Margin="-10,0,0,0">
+            <MenuBarItem Title="File">
+                <MenuFlyoutItem Text="Open Folder..." KeyboardAcceleratorTextOverride="Ctrl+O" Click="OnChooseFolder" />
+                <MenuFlyoutSeparator />
+                <MenuFlyoutItem Text="Exit" Click="OnExit" />
+            </MenuBarItem>
+            <MenuBarItem Title="Play">
+                <MenuFlyoutItem x:Name="PlayPauseMenuItem" Text="Play / Pause" Tag="PlayPause" Click="OnApplicationCommandMenuItemClick" />
+                <MenuFlyoutItem x:Name="PreviousTrackMenuItem" Text="Previous Track" Tag="PreviousTrack" Click="OnApplicationCommandMenuItemClick" />
+                <MenuFlyoutItem x:Name="NextTrackMenuItem" Text="Next Track" Tag="NextTrack" Click="OnApplicationCommandMenuItemClick" />
+                <MenuFlyoutSeparator />
+                <MenuFlyoutItem x:Name="SeekBackwardShortMenuItem" Text="Seek Backward Short" Tag="SeekBackwardShort" Click="OnApplicationCommandMenuItemClick" />
+                <MenuFlyoutItem x:Name="SeekForwardShortMenuItem" Text="Seek Forward Short" Tag="SeekForwardShort" Click="OnApplicationCommandMenuItemClick" />
+                <MenuFlyoutItem x:Name="SeekBackwardLongMenuItem" Text="Seek Backward Long" Tag="SeekBackwardLong" Click="OnApplicationCommandMenuItemClick" />
+                <MenuFlyoutItem x:Name="SeekForwardLongMenuItem" Text="Seek Forward Long" Tag="SeekForwardLong" Click="OnApplicationCommandMenuItemClick" />
+                <MenuFlyoutSeparator />
+                <MenuFlyoutItem Text="Clear Playlist..." Click="OnClearPlaylist" />
+            </MenuBarItem>
+            <MenuBarItem Title="Actions">
+                <MenuFlyoutItem x:Name="PreviousFolderMenuItem" Text="Previous Sibling Folder" Tag="PreviousFolder" Click="OnApplicationCommandMenuItemClick" />
+                <MenuFlyoutItem x:Name="NextFolderMenuItem" Text="Next Sibling Folder" Tag="NextFolder" Click="OnApplicationCommandMenuItemClick" />
+                <MenuFlyoutSeparator />
+                <MenuFlyoutItem x:Name="CopyTrackMenuItem" Text="Copy Playing / Loaded Track" Tag="CopyCurrentTrack" Click="OnApplicationCommandMenuItemClick" />
+                <MenuFlyoutItem Text="Open Current File in File Explorer" Click="OnOpenCurrentFileInExplorer" />
+                <MenuFlyoutItem x:Name="DeleteTrackMenuItem" Text="Move Current Track to Recycle Bin" Tag="DeleteCurrentTrack" Click="OnApplicationCommandMenuItemClick" />
+            </MenuBarItem>
+            <MenuBarItem Title="Settings">
+                <MenuFlyoutItem Text="Settings..." Click="OnGeneralSettings" />
+                <MenuFlyoutItem Text="Keyboard..." Click="OnShortcutSettings" />
+                <MenuFlyoutItem Text="Playlist Columns..." Click="OnPlaylistColumnsSettings" />
+            </MenuBarItem>
+            <MenuBarItem Title="About">
+                <MenuFlyoutItem Text="About QuickPlay..." Click="OnAbout" />
+            </MenuBarItem>
+        </MenuBar>
 
         <Border
             Grid.Row="1"

@@ -13,8 +13,11 @@ public sealed class PlaybackController(
     public Track? CurrentTrack => player.CurrentTrack;
 
     public TimeSpan? PlayCurrent() => Play(queue.Current);
+    public TimeSpan? PlayCurrentFrom(TimeSpan startPosition) => Play(queue.Current, startPosition);
     public TimeSpan? MoveNextAndPlay(bool removeCompletedTracks = true) => Play(queue.MoveNext(removeCompletedTracks));
     public TimeSpan? MovePreviousAndPlay(bool removeCompletedTracks = true) => Play(queue.MovePrevious(removeCompletedTracks));
+    public TimeSpan? MoveNextAndPlayFrom(TimeSpan startPosition, bool removeCompletedTracks = true) =>
+        Play(queue.MoveNext(removeCompletedTracks), startPosition);
     public TimeSpan? SelectAndPlay(Track track, bool removeCompletedTracks = true) => Play(queue.Select(track, removeCompletedTracks));
     public TimeSpan? SeekBy(TimeSpan offset) => player.SeekBy(offset);
     public bool? TogglePause() => player.TogglePause();
@@ -24,4 +27,8 @@ public sealed class PlaybackController(
     private TimeSpan? Play(Track? track) => track is null
         ? null
         : player.Play(track, settings.AuditionStartPosition);
+
+    private TimeSpan? Play(Track? track, TimeSpan startPosition) => track is null
+        ? null
+        : player.Play(track, startPosition);
 }

@@ -7,6 +7,8 @@ internal static class SettingsTests
     public static void Run()
     {
         TestAssert.Equal(TimeSpan.FromMinutes(1), new ApplicationSettings().AuditionStartPosition);
+        TestAssert.Equal(true, new ApplicationSettings().ContinuePlay);
+        TestAssert.Equal(TimeSpan.Zero, new ApplicationSettings().ContinuePlayStartPosition);
         TestAssert.Equal(true, new ApplicationSettings().RemovePlayedTracks);
         TestAssert.Equal(5d, new ApplicationSettings().PlayedThresholdSeconds);
         var folder = Path.Combine(Path.GetTempPath(), $"QuickPlay-{Guid.NewGuid():N}");
@@ -17,12 +19,14 @@ internal static class SettingsTests
             var settings = new ApplicationSettings
             {
                 AuditionStartPosition = TimeSpan.FromSeconds(42),
+                ContinuePlay = false,
+                ContinuePlayStartPosition = TimeSpan.FromSeconds(12),
                 ShortSeekSeconds = 7,
                 LongSeekSeconds = 45,
                 RemovePlayedTracks = true,
                 PlayedThresholdSeconds = 600
             };
-            settings.Shortcuts[ApplicationCommand.PlayPause] = new ShortcutGesture(32);
+            settings.Shortcuts[ApplicationCommand.PlayPause] = new ShortcutGesture(80);
             settings.Shortcuts[ApplicationCommand.SeekBackwardShort] = ShortcutGesture.Unassigned;
             settings.PlaylistLayout.Columns =
             [
@@ -45,11 +49,13 @@ internal static class SettingsTests
             store.Save(settings);
             var loaded = store.Load();
             TestAssert.Equal(TimeSpan.FromSeconds(42), loaded.AuditionStartPosition);
+            TestAssert.Equal(false, loaded.ContinuePlay);
+            TestAssert.Equal(TimeSpan.FromSeconds(12), loaded.ContinuePlayStartPosition);
             TestAssert.Equal(7d, loaded.ShortSeekSeconds);
             TestAssert.Equal(45d, loaded.LongSeekSeconds);
             TestAssert.Equal(true, loaded.RemovePlayedTracks);
             TestAssert.Equal(600d, loaded.PlayedThresholdSeconds);
-            TestAssert.Equal(new ShortcutGesture(32), loaded.Shortcuts[ApplicationCommand.PlayPause]);
+            TestAssert.Equal(new ShortcutGesture(80), loaded.Shortcuts[ApplicationCommand.PlayPause]);
             TestAssert.Equal(ShortcutGesture.Unassigned, loaded.Shortcuts[ApplicationCommand.SeekBackwardShort]);
             TestAssert.Equal("Artist,Title,Album,Energy", string.Join(',', loaded.PlaylistLayout.Columns));
             TestAssert.Equal(245d, loaded.PlaylistLayout.ColumnWidths[PlaylistColumn.Artist]);

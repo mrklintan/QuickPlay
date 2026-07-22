@@ -22,9 +22,30 @@ internal static class NaturalSortingTests
         Array.Sort(text, NaturalStringComparer.Instance);
         TestAssert.Equal("Track 01,track 2,Track 3,Track 11", string.Join(',', text));
 
-        var trackNumbers = new[] { Metadata(track: 11), Metadata(track: 2), Metadata(track: 1), Metadata(track: 3) };
+        var trackNumbers = new[]
+        {
+            Metadata(track: "02/12", disc: "2", title: "Disc 2 Track 2"),
+            Metadata(track: "2", disc: "1", title: "Disc 1 Track 2"),
+            Metadata(track: "01", disc: "2", title: "Disc 2 Track 1"),
+            Metadata(track: "1", disc: "01/02", title: "Disc 1 Track 1")
+        };
         Array.Sort(trackNumbers, new PlaylistSorter(PlaylistColumn.TrackNumber, PlaylistSortDirection.Ascending));
-        TestAssert.Equal("1,2,3,11", string.Join(',', trackNumbers.Select(item => item.TrackNumber)));
+        TestAssert.Equal(
+            "Disc 1 Track 1,Disc 1 Track 2,Disc 2 Track 1,Disc 2 Track 2",
+            string.Join(',', trackNumbers.Select(item => item.Title)));
+
+        var malformedNumbers = new[]
+        {
+            Metadata(track: "bad", disc: "x", title: "Malformed"),
+            Metadata(track: "02/12", disc: "01/02", title: "Valid"),
+            Metadata(track: "", disc: "", title: "Missing")
+        };
+        Array.Sort(malformedNumbers, new PlaylistSorter(PlaylistColumn.TrackNumber, PlaylistSortDirection.Ascending));
+        TestAssert.Equal("Valid,Missing,Malformed", string.Join(',', malformedNumbers.Select(item => item.Title)));
+        TestAssert.Equal(1, MetadataNumber.Parse("01"));
+        TestAssert.Equal(2, MetadataNumber.Parse("02/12"));
+        TestAssert.Equal<int?>(null, MetadataNumber.Parse("not a number"));
+        TestAssert.Equal<int?>(null, MetadataNumber.Parse(string.Empty));
 
         var bpm = new[] { Metadata(bpm: 128), Metadata(bpm: null), Metadata(bpm: 9), Metadata(bpm: 100) };
         Array.Sort(bpm, new PlaylistSorter(PlaylistColumn.Bpm, PlaylistSortDirection.Ascending));
@@ -44,7 +65,8 @@ internal static class NaturalSortingTests
     }
 
     private static TrackMetadata Metadata(
-        uint track = 0,
+        string track = "",
+        string disc = "",
         string energy = "",
         int seconds = 1,
         uint? bpm = null,
@@ -54,6 +76,7 @@ internal static class NaturalSortingTests
         Title: title ?? $"Track {track}",
         Album: string.Empty,
         TrackNumber: track,
+        DiscNumber: disc,
         Year: 0,
         Genre: string.Empty,
         Comment: string.Empty,

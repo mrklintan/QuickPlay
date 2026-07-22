@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Collections.ObjectModel;
 using QuickPlay.Audio;
 using QuickPlay.Core;
@@ -29,6 +30,8 @@ public sealed partial class MainWindow : Window
     private readonly ShortcutManager _shortcutManager;
     private readonly ClipboardFileService _clipboardService = new();
     private readonly ShellFileService _shellFileService = new();
+    private readonly ExplorerFileSelector _explorerFileSelector = new();
+    private readonly PlaylistRestoreLogWriter _restoreLogWriter = new();
     private readonly AudioPlayer _player;
     private readonly PlaybackController _playback;
     private readonly IWaveformAnalyzer _waveformAnalyzer = new BassWaveformAnalyzer();
@@ -40,6 +43,8 @@ public sealed partial class MainWindow : Window
     private CancellationTokenSource? _metadataCancellation;
     private WaveformData? _waveform;
     private Line? _playheadLine;
+    // This is always the explicitly opened folder, never a recursively discovered subfolder.
+    // Manual and automatic sibling navigation both use its parent as their sibling scope.
     private string? _currentFolderPath;
     private bool _updatingSelection;
     private bool _dialogOpen;
@@ -48,6 +53,9 @@ public sealed partial class MainWindow : Window
     private double _resizeStartWidth;
     private TimeSpan _currentPlayedTime;
     private DateTimeOffset? _playbackClockStartedAt;
+    private bool _playlistReadyForNavigation;
+    private bool _naturalEndHandled;
+    private bool _pausedByUser;
 
     public ObservableCollection<TrackListItemViewModel> Tracks { get; } = [];
 
@@ -85,7 +93,7 @@ public sealed partial class MainWindow : Window
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
-        PlayPauseButton.Content = "Play";
+        UpdateMenuShortcutLabels();
         ApplyPlaylistLayout(reorderQueue: false);
         _positionTimer.Start();
         RootGrid.Focus(FocusState.Programmatic);
@@ -101,8 +109,11 @@ public sealed partial class MainWindow : Window
         var savedCount = session.PlaylistFiles.Count;
         if (!Directory.Exists(folderPath))
         {
+            var missingRootFailures = session.PlaylistFiles
+                .Select(path => new PlaylistRestoreFailure(path, "The restore root folder does not exist."))
+                .ToArray();
             ResetToDefaultState();
-            await ShowRestoreWarningAsync(savedCount, folderPath, useDefault: true);
+            await ShowRestoreWarningAsync(missingRootFailures, folderPath, useDefault: true);
             return;
         }
 
@@ -113,37 +124,68 @@ public sealed partial class MainWindow : Window
             session.CurrentTrackPath,
             session.CompletedFiles);
         var missingCount = Math.Max(0, savedCount - loadedCount);
+        var restoredPaths = _itemsByTrack.Keys
+            .Select(track => track.FilePath)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var failures = session.PlaylistFiles
+            .Where(path => !restoredPaths.Contains(path))
+            .Select(path => new PlaylistRestoreFailure(
+                path,
+                File.Exists(path)
+                    ? "The file is not a supported audio file under the restore root."
+                    : "File does not exist."))
+            .ToArray();
         if (loadedCount == 0)
         {
             ResetToDefaultState();
-            await ShowRestoreWarningAsync(savedCount, folderPath, useDefault: true);
+            await ShowRestoreWarningAsync(failures, folderPath, useDefault: true);
         }
         else if (missingCount > 0)
         {
-            await ShowRestoreWarningAsync(missingCount, folderPath, useDefault: false);
+            await ShowRestoreWarningAsync(failures, folderPath, useDefault: false);
         }
     }
 
-    private async Task ShowRestoreWarningAsync(int fileCount, string folderPath, bool useDefault)
+    private async Task ShowRestoreWarningAsync(
+        IReadOnlyCollection<PlaylistRestoreFailure> failures,
+        string folderPath,
+        bool useDefault)
     {
+        var fileCount = failures.Count;
+        string? logPath = null;
+        string? logError = null;
+        try { logPath = _restoreLogWriter.Write(folderPath, failures); }
+        catch (Exception exception) { logError = exception.Message; }
         var suffix = useDefault
             ? "QuickPlay will continue with an empty playlist and the default layout."
             : "The available tracks were restored.";
+        var logStatus = logPath is not null
+            ? $"\n\nA detailed report was saved to:\n{logPath}"
+            : $"\n\nA detailed report could not be created{(string.IsNullOrWhiteSpace(logError) ? "." : $": {logError}")}";
         var dialog = new ContentDialog
         {
             XamlRoot = RootGrid.XamlRoot,
             Title = "Playlist could not be fully restored",
-            CloseButtonText = "Continue",
+            PrimaryButtonText = logPath is null ? string.Empty : "Open Log",
+            CloseButtonText = "Close",
             DefaultButton = ContentDialogButton.Close,
             Content = new TextBlock
             {
-                Text = $"Could not load {fileCount} file{(fileCount == 1 ? string.Empty : "s")} from folder:\n{folderPath}\n\n{suffix}",
+                Text = $"Could not load {fileCount} file{(fileCount == 1 ? string.Empty : "s")} from folder:\n{folderPath}\n\n{suffix}{logStatus}",
                 TextWrapping = TextWrapping.Wrap,
                 MaxWidth = 560
             }
         };
         _dialogOpen = true;
-        try { await dialog.ShowAsync(); }
+        try
+        {
+            var result = await dialog.ShowAsync();
+            if (result == ContentDialogResult.Primary && logPath is not null)
+            {
+                try { Process.Start(new ProcessStartInfo(logPath) { UseShellExecute = true }); }
+                catch (Exception exception) { StatusText.Text = $"Could not open the restore log: {exception.Message}"; }
+            }
+        }
         finally
         {
             _dialogOpen = false;
@@ -157,6 +199,8 @@ public sealed partial class MainWindow : Window
         _currentFolderPath = null;
         _itemsByTrack.Clear();
         _queue.SetTracks([]);
+        _playlistReadyForNavigation = true;
+        _naturalEndHandled = true;
         _settings.PlaylistSession.Clear();
         _settings.PlaylistLayout.ResetColumns();
         _settings.PlaylistLayout.ColumnWidths = PlaylistLayoutSettings.CreateDefaultWidths();
@@ -219,10 +263,106 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void OnPrevious(object sender, RoutedEventArgs e) => ExecuteCommand(ApplicationCommand.PreviousTrack);
-    private void OnNext(object sender, RoutedEventArgs e) => ExecuteCommand(ApplicationCommand.NextTrack);
-    private void OnPlayPause(object sender, RoutedEventArgs e) => ExecuteCommand(ApplicationCommand.PlayPause);
     private void OnExit(object sender, RoutedEventArgs e) => Close();
+
+    private async void OnClearPlaylist(object sender, RoutedEventArgs e)
+    {
+        var dialog = new ContentDialog
+        {
+            XamlRoot = RootGrid.XamlRoot,
+            Title = "Clear playlist?",
+            PrimaryButtonText = "Yes",
+            CloseButtonText = "No",
+            DefaultButton = ContentDialogButton.Close,
+            Content = new TextBlock
+            {
+                Text = "Clear the current playlist and close the current folder?",
+                TextWrapping = TextWrapping.Wrap
+            }
+        };
+        _dialogOpen = true;
+        try
+        {
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+            ClearPlaylist();
+        }
+        finally
+        {
+            _dialogOpen = false;
+            FocusPlaybackSurface();
+        }
+    }
+
+    private void ClearPlaylist()
+    {
+        _metadataCancellation?.Cancel();
+        _waveformCancellation?.Cancel();
+        _player.Stop();
+        StopPlaybackClock();
+        _currentPlayedTime = TimeSpan.Zero;
+        _currentFolderPath = null;
+        _itemsByTrack.Clear();
+        _queue.SetTracks([]);
+        RefreshVisibleQueue();
+        _playlistReadyForNavigation = true;
+        _naturalEndHandled = true;
+        _pausedByUser = false;
+        _settings.PlaylistSession.Clear();
+        CurrentFolderText.Text = "—";
+        ToolTipService.SetToolTip(CurrentFolderText, null);
+        _waveform = null;
+        DrawWaveform();
+        ResetNowPlaying();
+        UpdateTimeDisplay();
+        StatusText.Text = "Playlist cleared. No folder is open.";
+        try { _settingsStore.Save(_settings); }
+        catch (Exception exception) { StatusText.Text = $"Playlist cleared, but settings could not be saved: {exception.Message}"; }
+    }
+
+    private void OnOpenCurrentFileInExplorer(object sender, RoutedEventArgs e)
+    {
+        var track = _playback.CurrentTrack ?? _queue.Current;
+        if (track is null)
+        {
+            StatusText.Text = "No current file to show in File Explorer.";
+            return;
+        }
+        try { _explorerFileSelector.Select(track.FilePath); }
+        catch (Exception exception) { StatusText.Text = $"Could not open File Explorer: {exception.Message}"; }
+        FocusPlaybackSurface();
+    }
+
+    private void OnApplicationCommandMenuItemClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuFlyoutItem { Tag: string commandName } &&
+            Enum.TryParse<ApplicationCommand>(commandName, out var command))
+            ExecuteCommand(command);
+    }
+
+    private void UpdateMenuShortcutLabels()
+    {
+        var menuItems = new (MenuFlyoutItem Item, ApplicationCommand Command)[]
+        {
+            (PlayPauseMenuItem, ApplicationCommand.PlayPause),
+            (PreviousTrackMenuItem, ApplicationCommand.PreviousTrack),
+            (NextTrackMenuItem, ApplicationCommand.NextTrack),
+            (SeekBackwardShortMenuItem, ApplicationCommand.SeekBackwardShort),
+            (SeekForwardShortMenuItem, ApplicationCommand.SeekForwardShort),
+            (SeekBackwardLongMenuItem, ApplicationCommand.SeekBackwardLong),
+            (SeekForwardLongMenuItem, ApplicationCommand.SeekForwardLong),
+            (PreviousFolderMenuItem, ApplicationCommand.PreviousFolder),
+            (NextFolderMenuItem, ApplicationCommand.NextFolder),
+            (CopyTrackMenuItem, ApplicationCommand.CopyCurrentTrack),
+            (DeleteTrackMenuItem, ApplicationCommand.DeleteCurrentTrack)
+        };
+        foreach (var (item, command) in menuItems)
+        {
+            var gesture = _settings.Shortcuts.GetValueOrDefault(command);
+            item.KeyboardAcceleratorTextOverride = gesture is { IsAssigned: true }
+                ? gesture.DisplayText
+                : string.Empty;
+        }
+    }
 
     private void OnKeyDown(object sender, KeyRoutedEventArgs e)
     {
@@ -245,6 +385,11 @@ public sealed partial class MainWindow : Window
     {
         if (_updatingSelection || TrackList.SelectedItem is not TrackListItemViewModel item ||
             ReferenceEquals(item.Track, _queue.Current)) return;
+        if (!_playlistReadyForNavigation)
+        {
+            StatusText.Text = "Please wait until playlist metadata has finished loading.";
+            return;
+        }
         try
         {
             UpdateCurrentCompletionStatus();
@@ -337,6 +482,7 @@ public sealed partial class MainWindow : Window
             if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
             dialog.ApplyTo(_settings);
             _settingsStore.Save(_settings);
+            UpdateMenuShortcutLabels();
             StatusText.Text = "Keyboard shortcuts saved.";
             RootGrid.Focus(FocusState.Programmatic);
         }
@@ -415,7 +561,8 @@ public sealed partial class MainWindow : Window
         _updatingSelection = false;
         UpdateNowPlaying(item);
         UpdatePlaybackStyles();
-        PlayPauseButton.Content = "Pause";
+        _naturalEndHandled = false;
+        _pausedByUser = false;
         StatusText.Text = $"Playing {track.DisplayName} from {FormatPosition(startPosition.Value)}";
         ResetPlaybackClock();
         UpdateTimeDisplay();
@@ -444,7 +591,6 @@ public sealed partial class MainWindow : Window
         var position = _playback.SeekToFraction(Math.Clamp(point.X / WaveformCanvas.ActualWidth, 0, 1));
         if (position is not null)
         {
-            PlayPauseButton.Content = "Pause";
             StatusText.Text = $"Playing from {FormatPosition(position.Value)}";
             UpdateTimeDisplay();
         }
@@ -494,11 +640,15 @@ public sealed partial class MainWindow : Window
         bool autoPlay = true,
         IReadOnlyList<string>? savedPlaylist = null,
         string? savedCurrentTrack = null,
-        IReadOnlyList<string>? savedCompletedFiles = null)
+        IReadOnlyList<string>? savedCompletedFiles = null,
+        TimeSpan? autoPlayStartPosition = null)
     {
         try
         {
             _player.Stop();
+            _playlistReadyForNavigation = false;
+            _naturalEndHandled = true;
+            _pausedByUser = false;
             _metadataCancellation?.Cancel();
             _metadataCancellation?.Dispose();
             _metadataCancellation = new CancellationTokenSource();
@@ -542,21 +692,18 @@ public sealed partial class MainWindow : Window
             RefreshVisibleQueue();
             if (tracks.Count == 0)
             {
+                _playlistReadyForNavigation = true;
                 ResetNowPlaying();
                 StatusText.Text = "No supported audio files were found in that folder.";
                 return 0;
             }
             StatusText.Text = $"{tracks.Count} tracks found. Loading metadata…";
-            if (autoPlay)
-            {
-                ExecutePlayback(_playback.PlayCurrent);
-            }
-            else
+            if (!autoPlay)
             {
                 ResetNowPlaying();
                 UpdateTimeDisplay();
             }
-            _ = LoadMetadataAsync(items, _metadataCancellation.Token);
+            _ = LoadMetadataAsync(items, _metadataCancellation.Token, autoPlay, autoPlayStartPosition);
             return tracks.Count;
         }
         catch (Exception exception)
@@ -566,7 +713,11 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async Task LoadMetadataAsync(IReadOnlyList<TrackListItemViewModel> items, CancellationToken cancellationToken)
+    private async Task LoadMetadataAsync(
+        IReadOnlyList<TrackListItemViewModel> items,
+        CancellationToken cancellationToken,
+        bool autoPlay = false,
+        TimeSpan? autoPlayStartPosition = null)
     {
         try
         {
@@ -580,7 +731,15 @@ public sealed partial class MainWindow : Window
                 if (ReferenceEquals(item.Track, _queue.Current)) UpdateNowPlaying(item);
             }
             SortPlaylistAndRefresh();
+            _playlistReadyForNavigation = true;
             StatusText.Text = $"{items.Count} tracks ready.";
+            if (autoPlay)
+            {
+                if (autoPlayStartPosition is TimeSpan startPosition)
+                    ExecutePlayback(() => _playback.PlayCurrentFrom(startPosition));
+                else
+                    ExecutePlayback(_playback.PlayCurrent);
+            }
         }
         catch (OperationCanceledException) { }
     }
@@ -707,7 +866,7 @@ public sealed partial class MainWindow : Window
         PlayAndPresent(restoredPosition);
         if (wasPlaying) return;
         _player.TogglePause();
-        PlayPauseButton.Content = "Play";
+        _pausedByUser = true;
     }
 
     private void TogglePlayPause()
@@ -716,6 +875,11 @@ public sealed partial class MainWindow : Window
         {
             if (_playback.CurrentTrack is null && _queue.Current is not null)
             {
+                if (!_playlistReadyForNavigation)
+                {
+                    StatusText.Text = "Please wait until playlist metadata has finished loading.";
+                    return;
+                }
                 ExecutePlayback(_playback.PlayCurrent);
                 return;
             }
@@ -729,7 +893,7 @@ public sealed partial class MainWindow : Window
                 return;
             }
             if (isPlaying.Value) StartPlaybackClock();
-            PlayPauseButton.Content = isPlaying.Value ? "Pause" : "Play";
+            _pausedByUser = !isPlaying.Value;
             StatusText.Text = isPlaying.Value ? "Playback resumed." : "Playback paused.";
         }
         catch (Exception exception)
@@ -766,6 +930,7 @@ public sealed partial class MainWindow : Window
     {
         try
         {
+            if (!EnsurePlaylistReady()) return;
             UpdateCurrentCompletionStatus();
             var startPosition = _playback.MoveNextAndPlay(_settings.RemovePlayedTracks);
             if (startPosition is not null)
@@ -791,10 +956,72 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private bool EnsurePlaylistReady()
+    {
+        if (_playlistReadyForNavigation) return true;
+        StatusText.Text = "Please wait until playlist metadata has finished loading.";
+        return false;
+    }
+
+    private void HandleNaturalEnd()
+    {
+        if (_naturalEndHandled || !_playlistReadyForNavigation || _playback.CurrentTrack is null)
+            return;
+        var action = NaturalPlaybackEndPolicy.Resolve(
+                _settings.ContinuePlay,
+                _playback.Position,
+                _playback.Duration,
+                _playback.IsPlaying,
+                _pausedByUser);
+        if (action == NaturalPlaybackEndAction.None) return;
+
+        _naturalEndHandled = true;
+        StopPlaybackClock();
+        _queue.MarkCurrentCompleted();
+        UpdatePlaybackStyles();
+
+        if (action == NaturalPlaybackEndAction.Stop)
+        {
+            StatusText.Text = "Playback finished.";
+            return;
+        }
+
+        try
+        {
+            var startPosition = _playback.MoveNextAndPlayFrom(
+                _settings.ContinuePlayStartPosition,
+                _settings.RemovePlayedTracks);
+            if (startPosition is not null)
+            {
+                RefreshVisibleQueue();
+                PlayAndPresent(startPosition);
+                return;
+            }
+
+            if (_currentFolderPath is null) return;
+            var nextFolder = _folderNavigator.MoveNext(_currentFolderPath);
+            if (nextFolder is null)
+            {
+                StatusText.Text = "End of the last sibling folder.";
+                return;
+            }
+
+            OpenFolder(
+                nextFolder,
+                autoPlay: true,
+                autoPlayStartPosition: _settings.ContinuePlayStartPosition);
+        }
+        catch (Exception exception)
+        {
+            StatusText.Text = exception.Message;
+        }
+    }
+
     private void PlayPreviousTrack()
     {
         try
         {
+            if (!EnsurePlaylistReady()) return;
             UpdateCurrentCompletionStatus();
             var startPosition = _playback.MovePreviousAndPlay(_settings.RemovePlayedTracks);
             if (startPosition is null)
@@ -830,7 +1057,6 @@ public sealed partial class MainWindow : Window
         {
             var position = _playback.SeekBy(offset);
             if (position is null) return;
-            PlayPauseButton.Content = "Pause";
             StatusText.Text = $"Playing from {FormatPosition(position.Value)}";
             UpdateTimeDisplay();
         }
@@ -859,7 +1085,6 @@ public sealed partial class MainWindow : Window
         NowPlayingKeyText.Text = "Key —";
         NowPlayingEnergyText.Text = "Energy —";
         CurrentFileNameText.Text = "—";
-        PlayPauseButton.Content = "Play";
     }
 
     private void UpdateCurrentCompletionStatus()
@@ -1145,6 +1370,7 @@ public sealed partial class MainWindow : Window
     {
         UpdateCurrentCompletionStatus();
         UpdateTimeDisplay();
+        HandleNaturalEnd();
     }
 
     private void UpdateTimeDisplay()

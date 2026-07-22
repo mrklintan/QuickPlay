@@ -24,7 +24,8 @@ public sealed class TagLibTrackMetadataReader : ITrackMetadataReader
                 Artist: artist,
                 Title: title,
                 Album: tag.Album ?? string.Empty,
-                TrackNumber: tag.Track,
+                TrackNumber: DisplayNumber(tag.Track),
+                DiscNumber: DisplayNumber(tag.Disc),
                 Year: tag.Year,
                 Genre: tag.JoinedGenres ?? string.Empty,
                 Comment: tag.Comment ?? string.Empty,
@@ -103,4 +104,6 @@ public sealed class TagLibTrackMetadataReader : ITrackMetadataReader
 
     private static string FirstNonEmpty(params string?[] values) =>
         values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? string.Empty;
+
+    private static string DisplayNumber(uint value) => value == 0 ? string.Empty : value.ToString();
 }

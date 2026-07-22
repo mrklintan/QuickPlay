@@ -19,6 +19,8 @@ internal static class PlaylistLayoutSettingsTests
         TestAssert.Equal(PlaylistColumn.Artist, layout.SortColumn);
         TestAssert.Equal(PlaylistSortDirection.Ascending, layout.SortDirection);
         TestAssert.Equal(PlaylistColumns.Get(PlaylistColumn.Artist).MinimumWidth, layout.ColumnWidths[PlaylistColumn.Artist]);
+        TestAssert.True(PlaylistColumns.IsOptional(PlaylistColumn.DiscNumber));
+        TestAssert.Equal("Disc Number", PlaylistColumns.Get(PlaylistColumn.DiscNumber).DisplayName);
 
         layout.Columns = [PlaylistColumn.Artist, PlaylistColumn.Title];
         layout.SortColumn = PlaylistColumn.Energy;

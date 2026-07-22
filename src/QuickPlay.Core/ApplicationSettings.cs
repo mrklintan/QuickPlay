@@ -4,6 +4,7 @@ public sealed class ApplicationSettings
 {
     public static readonly TimeSpan DefaultAuditionStartPosition = TimeSpan.FromMinutes(1);
     private TimeSpan _auditionStartPosition = DefaultAuditionStartPosition;
+    private TimeSpan _continuePlayStartPosition = TimeSpan.Zero;
     private double _shortSeekSeconds = 5;
     private double _longSeekSeconds = 30;
     private double _playedThresholdSeconds = 5;
@@ -30,6 +31,16 @@ public sealed class ApplicationSettings
         set => _longSeekSeconds = value > 0
             ? value
             : throw new ArgumentOutOfRangeException(nameof(value), "Long seek must be positive.");
+    }
+
+    public bool ContinuePlay { get; set; } = true;
+
+    public TimeSpan ContinuePlayStartPosition
+    {
+        get => _continuePlayStartPosition;
+        set => _continuePlayStartPosition = value >= TimeSpan.Zero
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(value), "Continue Play start position cannot be negative.");
     }
 
     public bool RemovePlayedTracks { get; set; } = true;

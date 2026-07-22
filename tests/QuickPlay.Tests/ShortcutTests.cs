@@ -13,6 +13,15 @@ internal static class ShortcutTests
             ApplicationCommand.NextTrack,
             manager.Resolve(new ShortcutGesture(40)));
         TestAssert.Equal(
+            ApplicationCommand.PlayPause,
+            manager.Resolve(new ShortcutGesture(32)));
+        TestAssert.Equal(
+            ApplicationCommand.SeekBackwardShort,
+            manager.Resolve(new ShortcutGesture(37, ShortcutModifiers.Control)));
+        TestAssert.Equal(
+            ApplicationCommand.SeekBackwardLong,
+            manager.Resolve(new ShortcutGesture(37)));
+        TestAssert.Equal(
             ApplicationCommand.CopyCurrentTrack,
             manager.Resolve(new ShortcutGesture(67, ShortcutModifiers.Control)));
         TestAssert.Equal(

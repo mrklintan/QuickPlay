@@ -1,0 +1,50 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package
+      Name="QuickPlay"
+      Manufacturer="QuickPlay contributors"
+      Version="$(var.QuickPlayVersion)"
+      UpgradeCode="D8E0B540-3F8F-4C0D-AD54-9E5DB7C2A43A"
+      Scope="perUser"
+      InstallerVersion="500">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of QuickPlay is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <ui:WixUI Id="WixUI_Minimal" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(sys.SOURCEFILEDIR)LicenseAgreement.rtf" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="LocalProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="QuickPlay" />
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="QuickPlayProgramMenuFolder" Name="QuickPlay" />
+    </StandardDirectory>
+
+    <Feature Id="Complete" Title="QuickPlay" Level="1">
+      <ComponentGroupRef Id="QuickPlayFiles" />
+      <ComponentRef Id="StartMenuShortcutComponent" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="QuickPlayFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(var.PublishDir)\**" />
+    </ComponentGroup>
+  </Fragment>
+
+  <Fragment>
+    <Icon Id="QuickPlayIcon" SourceFile="$(var.PublishDir)\Assets\QuickPlay.ico" />
+    <Component Id="StartMenuShortcutComponent" Directory="QuickPlayProgramMenuFolder" Guid="*">
+      <Shortcut
+          Id="QuickPlayStartMenuShortcut"
+          Name="QuickPlay"
+          Description="QuickPlay audio audition player"
+          Target="[INSTALLFOLDER]QuickPlay.WinUI.exe"
+          WorkingDirectory="INSTALLFOLDER"
+          Icon="QuickPlayIcon" />
+      <RemoveFolder Id="RemoveQuickPlayProgramMenuFolder" On="uninstall" />
+      <RegistryValue Root="HKCU" Key="Software\QuickPlay" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+  </Fragment>
+</Wix>

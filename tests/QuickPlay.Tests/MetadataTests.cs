@@ -10,6 +10,8 @@ internal static class MetadataTests
         TestAssert.Equal("Artist - Title", fallback.Title);
         TestAssert.Equal("Artist - Title.aif", fallback.FileName);
         TestAssert.Equal(string.Empty, fallback.Energy);
+        TestAssert.Equal(string.Empty, fallback.DiscNumber);
+        TestAssert.Equal(string.Empty, fallback.TrackNumber);
 
         var missingPath = System.IO.Path.Combine(
             System.IO.Path.GetTempPath(),

@@ -14,6 +14,18 @@ public sealed class GeneralSettingsDialog
         PlaceholderText = "01:00",
         Description = "Time format: mm:ss"
     };
+    private readonly ToggleSwitch _continuePlayToggle = new()
+    {
+        Header = "Continue Play",
+        OnContent = "On",
+        OffContent = "Off"
+    };
+    private readonly TextBox _continuePlayPositionBox = new()
+    {
+        Header = "Continue Play Start Position",
+        PlaceholderText = "00:00",
+        Description = "Time format: mm:ss"
+    };
     private readonly NumberBox _shortSeekBox = new()
     {
         Header = "Short Seek Duration (seconds)",
@@ -49,6 +61,7 @@ public sealed class GeneralSettingsDialog
     };
 
     private TimeSpan _validatedAuditionPosition;
+    private TimeSpan _validatedContinuePlayPosition;
 
     public GeneralSettingsDialog(ApplicationSettings settings)
     {
@@ -59,6 +72,8 @@ public sealed class GeneralSettingsDialog
         _dialog.PrimaryButtonClick += OnPrimaryButtonClick;
 
         _auditionPositionBox.Text = FormatPosition(settings.AuditionStartPosition);
+        _continuePlayToggle.IsOn = settings.ContinuePlay;
+        _continuePlayPositionBox.Text = FormatPosition(settings.ContinuePlayStartPosition);
         _shortSeekBox.Value = settings.ShortSeekSeconds;
         _longSeekBox.Value = settings.LongSeekSeconds;
         _removePlayedTracksToggle.IsOn = settings.RemovePlayedTracks;
@@ -77,6 +92,8 @@ public sealed class GeneralSettingsDialog
     public void ApplyTo(ApplicationSettings settings)
     {
         settings.AuditionStartPosition = _validatedAuditionPosition;
+        settings.ContinuePlay = _continuePlayToggle.IsOn;
+        settings.ContinuePlayStartPosition = _validatedContinuePlayPosition;
         settings.ShortSeekSeconds = _shortSeekBox.Value;
         settings.LongSeekSeconds = _longSeekBox.Value;
         settings.RemovePlayedTracks = _removePlayedTracksToggle.IsOn;
@@ -87,6 +104,8 @@ public sealed class GeneralSettingsDialog
     {
         var layout = new StackPanel { MinWidth = 380, Spacing = 14 };
         layout.Children.Add(_auditionPositionBox);
+        layout.Children.Add(_continuePlayToggle);
+        layout.Children.Add(_continuePlayPositionBox);
 
         var seekGrid = new Grid { ColumnSpacing = 12 };
         seekGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -112,6 +131,13 @@ public sealed class GeneralSettingsDialog
         if (!TryParsePosition(_auditionPositionBox.Text, out _validatedAuditionPosition))
         {
             _validationText.Text = "Enter the audition position as mm:ss (seconds 00–59).";
+            args.Cancel = true;
+            return;
+        }
+
+        if (!TryParsePosition(_continuePlayPositionBox.Text, out _validatedContinuePlayPosition))
+        {
+            _validationText.Text = "Enter the Continue Play start position as mm:ss (seconds 00–59).";
             args.Cancel = true;
             return;
         }

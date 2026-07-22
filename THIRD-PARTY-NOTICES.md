@@ -1,16 +1,16 @@
 # Third-party notices
 
-The QuickPlay Free-Do-What-You-Want License applies only to QuickPlay's own source code. Dependencies retain their original licences.
+The MIT License in `LICENSE` applies only to QuickPlay's own source code. Third-party components retain their own licences.
 
-## BASS
+## BASS Audio Library
 
-QuickPlay uses the BASS audio library from Un4seen Developments Ltd. BASS is not included in this repository. Download it separately from <https://www.un4seen.com/bass.html> and review the `bass.txt` file supplied with the download.
+QuickPlay uses the BASS Audio Library from Un4seen Developments Ltd. BASS is not MIT licensed and is not included in this source repository. It must be obtained separately from <https://www.un4seen.com/bass.html> and remains governed by the licence terms supplied by Un4seen Developments in `bass.txt`.
 
-BASS is free for non-commercial use under its own terms. Commercial use requires an appropriate BASS licence. The QuickPlay licence does not grant any rights to BASS.
+BASS is available free for non-commercial use under its own terms. Commercial use requires an appropriate BASS licence. QuickPlay's MIT License grants no rights to BASS.
 
 ## TagLibSharp
 
-QuickPlay references TagLibSharp 2.3.0 through NuGet. TagLibSharp is licensed under LGPL-2.1-only. Its source and licence information are available from the TagLibSharp project and its NuGet package.
+QuickPlay references TagLibSharp 2.3.0 through NuGet. TagLibSharp is licensed under LGPL-2.1-only. Its source and licence information are available from the TagLibSharp project and NuGet package.
 
 ## Microsoft Windows App SDK
 

@@ -14,7 +14,8 @@ public sealed class PlaylistSorter(
             PlaylistColumn.Artist => CompareText(left.Artist, right.Artist),
             PlaylistColumn.Title => CompareText(left.Title, right.Title),
             PlaylistColumn.Album => CompareText(left.Album, right.Album),
-            PlaylistColumn.TrackNumber => CompareText(DisplayNumber(left.TrackNumber), DisplayNumber(right.TrackNumber)),
+            PlaylistColumn.DiscNumber => CompareMetadataNumber(left.DiscNumber, right.DiscNumber),
+            PlaylistColumn.TrackNumber => CompareTrackPosition(left, right),
             PlaylistColumn.Year => CompareText(DisplayNumber(left.Year), DisplayNumber(right.Year)),
             PlaylistColumn.Genre => CompareText(left.Genre, right.Genre),
             PlaylistColumn.Comment => CompareText(left.Comment, right.Comment),
@@ -39,6 +40,24 @@ public sealed class PlaylistSorter(
 
     private int CompareDuration(TimeSpan left, TimeSpan right) =>
         ApplyDirectionPreservingMissing(left <= TimeSpan.Zero, right <= TimeSpan.Zero, left.CompareTo(right));
+
+    private int CompareTrackPosition(TrackMetadata left, TrackMetadata right)
+    {
+        var discComparison = CompareMetadataNumber(left.DiscNumber, right.DiscNumber);
+        return discComparison != 0
+            ? discComparison
+            : CompareMetadataNumber(left.TrackNumber, right.TrackNumber);
+    }
+
+    private int CompareMetadataNumber(string? left, string? right)
+    {
+        var leftNumber = MetadataNumber.Parse(left);
+        var rightNumber = MetadataNumber.Parse(right);
+        return ApplyDirectionPreservingMissing(
+            leftNumber is null,
+            rightNumber is null,
+            leftNumber.GetValueOrDefault().CompareTo(rightNumber.GetValueOrDefault()));
+    }
 
     private int ApplyDirectionPreservingMissing(string? left, string? right, int comparison) =>
         ApplyDirectionPreservingMissing(string.IsNullOrWhiteSpace(left), string.IsNullOrWhiteSpace(right), comparison);

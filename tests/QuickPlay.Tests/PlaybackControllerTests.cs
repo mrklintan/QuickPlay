@@ -21,6 +21,11 @@ internal static class PlaybackControllerTests
         TestAssert.Equal(TimeSpan.FromSeconds(75), backend.SeekPosition);
         TestAssert.True(backend.PlayCalled);
 
+        queue.MarkAllUnplayed();
+        queue.SetTracks([new Track("one.mp3"), new Track("two.mp3")]);
+        TestAssert.Equal(TimeSpan.Zero, controller.MoveNextAndPlayFrom(TimeSpan.Zero));
+        TestAssert.Equal(TimeSpan.Zero, backend.SeekPosition);
+
         backend.Position = TimeSpan.FromSeconds(75);
         TestAssert.Equal(TimeSpan.FromSeconds(80), controller.SeekBy(TimeSpan.FromSeconds(5)));
         TestAssert.Equal(TimeSpan.FromSeconds(80), backend.SeekPosition);

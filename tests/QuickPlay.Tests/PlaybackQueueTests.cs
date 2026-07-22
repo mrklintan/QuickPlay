@@ -53,6 +53,7 @@ internal static class PlaybackQueueTests
 
         queue.ReorderTracks([d, c, b]);
         TestAssert.Equal("D.wav,C.wav,B.wav", Paths(queue.VisibleTracks));
+        TestAssert.Equal("C.wav", queue.MoveNext(removeCompletedTracks: false)?.FilePath);
 
         var restored = new PlaybackQueue();
         restored.SetTracks([a, b, c], b, [a, b]);

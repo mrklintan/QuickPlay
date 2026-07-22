@@ -15,7 +15,8 @@ public enum PlaylistColumn
     Grouping,
     Duration,
     FileName,
-    FullPath
+    FullPath,
+    DiscNumber
 }
 
 public sealed record PlaylistColumnDefinition(
@@ -32,6 +33,7 @@ public static class PlaylistColumns
         new(PlaylistColumn.Artist, "Artist", 180, 100, true),
         new(PlaylistColumn.Title, "Title", 300, 140, true),
         new(PlaylistColumn.Album, "Album", 220, 120, false),
+        new(PlaylistColumn.DiscNumber, "Disc Number", 100, 70, false),
         new(PlaylistColumn.TrackNumber, "Track Number", 100, 70, false),
         new(PlaylistColumn.Year, "Year", 80, 60, false),
         new(PlaylistColumn.Genre, "Genre", 140, 80, false),

@@ -28,11 +28,13 @@ The project is published openly as both a useful audio tool and a practical exam
 - Immediate playback when moving between tracks or sibling folders.
 - Clickable waveform seeking and current/total time display.
 - Metadata display for artist, title, BPM, musical key, Mixed In Key Energy, and duration, including AIFF/AIF support.
+- Optional Disc Number and Track Number columns with multi-disc-aware sorting.
 - Playback and waveform analysis for audio files stored at Windows paths that are 260 characters or longer.
 - Customizable playlist columns with persistent visibility, order, widths, and sorting.
 - Natural, numeric-aware playlist sorting with the current track pinned visually.
 - Clear playlist state: unplayed tracks are bold, played tracks are normal, and the active track is italic.
 - Independent played-time threshold and optional removal of played tracks.
+- Optional Continue Play with a separate start position for automatic track changes.
 - Playlist context actions for toggling a track between played and unplayed or marking every track as unplayed.
 - The current folder, remaining playlist, and active row are restored after restart without starting playback automatically.
 - End-of-folder playback continues with the first supported track in the next sibling folder without wrapping.
@@ -41,6 +43,9 @@ The project is published openly as both a useful audio tool and a practical exam
 - Configurable keyboard shortcuts with conflict confirmation.
 - Safe fallback when a track is shorter than the audition position.
 - Copy the active file or move it to the Windows Recycle Bin.
+- Recursively load supported audio from subfolders while keeping the explicitly opened folder as the sibling-navigation root.
+- Open File Explorer with the current audio file selected.
+- Clear the current playlist and return to the no-folder-open state after confirmation.
 
 ## Required external BASS file
 
@@ -72,7 +77,7 @@ The GitHub Releases page provides a ready-to-run, self-contained Windows x64 ZIP
 
 Because the prebuilt package includes BASS under its free non-commercial terms, that package is provided for **non-commercial use only**. Commercial use requires an appropriate BASS licence from Un4seen Developments. This restriction applies to the BASS-powered binary package, not to QuickPlay's own source code.
 
-Extract the ZIP to a normal writable folder and run `QuickPlay.WinUI.exe`. Windows may show a SmartScreen warning because the executable is not code-signed.
+Extract the ZIP to a normal writable folder and run `QuickPlay.WinUI.exe`. Development releases may be signed with a self-signed certificate; Windows can still show a trust or SmartScreen warning because that certificate is not automatically trusted on other computers.
 
 ## Build and run
 
@@ -99,6 +104,16 @@ src\QuickPlay.WinUI\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish
 
 Close QuickPlay before publishing so Windows does not lock the executable. The project publish target automatically includes the generated WinUI `.xbf` and `.pri` resources required at startup.
 
+To build the per-user x64 MSI (including a fresh complete publish):
+
+```powershell
+dotnet build .\installer\QuickPlay.Installer\QuickPlay.Installer.wixproj -c Release -p:Platform=x64
+```
+
+The installer is written to `installer\QuickPlay.Installer\bin\x64\Release\QuickPlay-1.3.0.0-x64.msi`. Double-click it for the normal interactive setup: review and accept the MIT and third-party terms, install, then close the completion confirmation. It installs without elevation under `%LOCALAPPDATA%\Programs\QuickPlay`, creates a Start Menu shortcut named **QuickPlay**, and supports standard uninstall and future major upgrades.
+
+See [Code signing](docs/CODE_SIGNING.md) for the self-signed development workflow. A self-signed certificate is not automatically trusted on other computers.
+
 To run the behavior checks:
 
 ```powershell
@@ -108,23 +123,25 @@ dotnet run --project tests\QuickPlay.Tests\QuickPlay.Tests.csproj
 ## Keyboard defaults
 
 - Ctrl+O: open a folder.
-- Up/Down: previous/next track.
-- Left/Right: seek backward/forward 5 seconds.
-- Shift+Left/Right: seek backward/forward 30 seconds.
+- Space: play or pause.
+- Up/Down: previous/next unplayed track.
+- Ctrl+Left/Right: seek backward/forward by the short duration.
+- Left/Right: seek backward/forward by the long duration.
 - Ctrl+Up/Down: previous/next sibling folder.
-- Pause: play or pause.
 - Ctrl+C: copy the active audio file.
 - Delete: confirm and move the active track to the Recycle Bin.
 
-Shortcut assignments can be changed from **Settings → Keyboard**. Audition Start Position, short/long seek durations, **Mark as played after (seconds)**, and the independent **Remove played tracks from playlist** switch are available under **Settings → Settings**. This switch only removes rows from the in-memory playlist; it never deletes audio files. Played time is measured as actual playback time and supports long values such as 600 seconds. If removal is disabled, played tracks remain in the playlist in normal text. If a new shortcut is already in use, QuickPlay asks whether to move it; the previous action then becomes unassigned.
+Shortcut assignments can be changed from **Settings → Keyboard**. Audition Start Position, Continue Play, its separate start position, short/long seek durations, **Mark as played after (seconds)**, and the independent **Remove played tracks from playlist** switch are available under **Settings → Settings**. This switch only removes rows from the in-memory playlist; it never deletes audio files. Played time is measured as actual playback time and supports long values such as 600 seconds. If removal is disabled, played tracks remain in the playlist in normal text. If a new shortcut is already in use, QuickPlay asks whether to move it; the previous action then becomes unassigned.
+
+Manual navigation and direct track activation use Audition Start Position. When Continue Play is enabled and a track reaches its natural end, QuickPlay marks it as played and automatically opens the next eligible unplayed track from Continue Play Start Position. If no eligible track remains, playback continues with the next sibling folder without wrapping at the final folder. Disabling Continue Play stops playback at the natural end.
 
 ## Playlist layout and playback queue
 
-Artist and Title are always the first two playlist columns. Use **Settings → Playlist Columns...** to add, remove, or reorder optional metadata columns. Drag a column-header divider to resize it, and click a header to toggle ascending or descending sorting. Column visibility, order, widths, sort column, and sort direction are saved in the existing QuickPlay settings file.
+Artist and Title are always the first two playlist columns. Use **Settings → Playlist Columns...** to add, remove, or reorder optional metadata columns, including Disc Number and Track Number. Drag a column-header divider to resize it, and click a header to toggle ascending or descending sorting. Track Number sorting compares normalized Disc Number first and Track Number second. Values such as `01` and `02/12` are handled safely. Column visibility, order, widths, sort column, and sort direction are saved in the existing QuickPlay settings file.
 
 All newly loaded tracks start in bold text, meaning that they are waiting to be played. The active track stays pinned at the top and is always italic. After the configured playback time it becomes played and changes to normal weight while remaining italic. When moving on, the previous track is appended to the end without re-sorting; if **Remove played tracks from playlist** is enabled and that track is played, its row is removed instead. The audio file remains untouched. Up and Down search in their respective direction for the next bold track and skip normal tracks. A normal track can still be replayed by clicking it directly. Right-click a row to use **Mark as Played** or **Mark as Unplayed**, depending on its current status. **Mark All as Unplayed** is always available. Explicit column sorting pins the active track and sorts the remaining rows.
 
-QuickPlay saves the current folder, active row, and remaining playlist during a normal shutdown. On the next launch it restores the playlist without autoplay. Missing files are reported; if the folder is unavailable or no saved tracks can be loaded, QuickPlay continues with an empty playlist and the default column layout.
+QuickPlay saves the current folder, active row, and remaining playlist during a normal shutdown. On the next launch it restores the playlist without autoplay. Missing files are reported and a detailed log is written under `%TEMP%\QuickPlay`; if the folder is unavailable or no saved tracks can be loaded, QuickPlay continues with an empty playlist and the default column layout.
 
 ## Known issue
 
@@ -142,4 +159,4 @@ Application settings are stored under `%LOCALAPPDATA%\QuickPlay`. On first launc
 
 ## Licensing
 
-QuickPlay's own source code uses the [Free-Do-What-You-Want License](LICENSE). Third-party software is excluded from that licence; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+QuickPlay's own source code uses the standard [MIT License](LICENSE). Third-party software is excluded from that licence and retains its own terms; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). In particular, BASS is separately licensed and is not covered by MIT.

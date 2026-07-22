@@ -12,11 +12,19 @@ internal static class TrackCatalogTests
         {
             File.WriteAllBytes(System.IO.Path.Combine(folder, "recording.aif"), []);
             File.WriteAllBytes(System.IO.Path.Combine(folder, "notes.txt"), []);
+            var cd1 = Directory.CreateDirectory(System.IO.Path.Combine(folder, "CD1")).FullName;
+            var cd2 = Directory.CreateDirectory(System.IO.Path.Combine(folder, "CD2")).FullName;
+            File.WriteAllBytes(System.IO.Path.Combine(cd1, "Track02.wav"), []);
+            File.WriteAllBytes(System.IO.Path.Combine(cd1, "Track01.mp3"), []);
+            File.WriteAllBytes(System.IO.Path.Combine(cd2, "Track01.flac"), []);
 
             var tracks = new TrackCatalog().LoadFolder(folder);
 
-            TestAssert.Equal(1, tracks.Count);
-            TestAssert.Equal("recording.aif", tracks[0].DisplayName);
+            TestAssert.Equal(4, tracks.Count);
+            TestAssert.Equal("Track01.mp3", tracks[0].DisplayName);
+            TestAssert.Equal("Track02.wav", tracks[1].DisplayName);
+            TestAssert.Equal("Track01.flac", tracks[2].DisplayName);
+            TestAssert.Equal("recording.aif", tracks[3].DisplayName);
         }
         finally
         {

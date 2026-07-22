@@ -5,3 +5,6 @@
 src/Bass/
 *.user
 *.suo
+*.pfx
+*.p12
+artifacts/
