@@ -42,11 +42,12 @@ The project is published openly as both a useful audio tool and a practical exam
 - Clear playlist state: unplayed tracks are bold, played tracks are normal, and the active track is italic.
 - Independent played-time threshold and optional removal of played tracks.
 - Optional Continue Play with a separate start position for automatic track changes.
+- Configurable early Continue Play advancement with natural track-end fallback and manual-seek protection.
 - Playlist context actions for toggling a track between played and unplayed or marking every track as unplayed.
 - The current folder, remaining playlist, and active row are restored after restart without starting playback automatically.
 - End-of-folder playback continues with the first supported track in the next sibling folder without wrapping.
-- Native File, Settings, and About menus.
-- Separate general playback and keyboard shortcut settings dialogs.
+- Native File, Play, Actions, Settings, and About menus with Windows-style Alt-key access.
+- Unified categorized Settings window for Playback, Playlist, Keyboard, and Updates.
 - Configurable keyboard shortcuts with conflict confirmation.
 - Safe fallback when a track is shorter than the audition position.
 - Copy the active file or move it to the Windows Recycle Bin.
@@ -55,6 +56,7 @@ The project is published openly as both a useful audio tool and a practical exam
 - Built-in update checking from **About → Check for Updates**, with an interactive x64 MSI handoff for newer GitHub releases.
 - Open File Explorer with the current audio file selected.
 - Clear the current playlist and return to the no-folder-open state after confirmation.
+- Confirm before exiting from the File menu or window close button.
 
 ## Required external BASS file
 
@@ -119,7 +121,7 @@ To build the per-user x64 MSI (including a fresh complete publish):
 dotnet build .\installer\QuickPlay.Installer\QuickPlay.Installer.wixproj -c Release -p:Platform=x64
 ```
 
-The installer is written to `installer\QuickPlay.Installer\bin\x64\Release\QuickPlay-1.3.1.0-x64.msi`. Double-click it for the normal interactive setup: review and accept the MIT and third-party terms, install, then close the completion confirmation. It installs without elevation under `%LOCALAPPDATA%\Programs\QuickPlay`, creates a Start Menu shortcut named **QuickPlay**, and supports standard uninstall and future major upgrades.
+The installer is written to `installer\QuickPlay.Installer\bin\x64\Release\en-US\QuickPlay-1.3.2.0-x64.msi`. Double-click it for the normal interactive setup: review and accept the MIT and third-party terms, install, then close the completion confirmation. It installs without elevation under `%LOCALAPPDATA%\Programs\QuickPlay`, creates a Start Menu shortcut named **QuickPlay**, and supports standard uninstall and future major upgrades.
 
 Use **About → Check for Updates** to compare the installed version with the latest GitHub release. When a newer release is available, QuickPlay downloads its x64 MSI to a temporary folder and starts the normal interactive installer. QuickPlay closes only after you acknowledge the handoff message; complete the installer separately and then restart QuickPlay from the Start menu.
 
@@ -144,7 +146,11 @@ dotnet run --project tests\QuickPlay.Tests\QuickPlay.Tests.csproj
 
 Shortcut assignments can be changed from **Settings → Keyboard**. Audition Start Position, Continue Play, its separate start position, short/long seek durations, **Mark as played after (seconds)**, and the independent **Remove played tracks from playlist** switch are available under **Settings → Settings**. This switch only removes rows from the in-memory playlist; it never deletes audio files. Played time is measured as actual playback time and supports long values such as 600 seconds. If removal is disabled, played tracks remain in the playlist in normal text. If a new shortcut is already in use, QuickPlay asks whether to move it; the previous action then becomes unassigned.
 
-Manual navigation and direct track activation use Audition Start Position. When Continue Play is enabled and a track reaches its natural end, QuickPlay marks it as played and automatically opens the next eligible unplayed track from Continue Play Start Position. If no eligible track remains, playback continues with the next sibling folder without wrapping at the final folder. Disabling Continue Play stops playback at the natural end.
+The unified Settings window keeps Playback, Playlist, Keyboard, and Updates in one left-navigation layout. Existing Settings menu commands open it directly on the relevant category, while Save applies all changes together and Cancel discards them.
+
+Manual navigation and direct track activation use Audition Start Position. When Continue Play is enabled, **Start next track at** controls the automatic track's start position and **Advance before track end** controls how early normal forward playback advances. Seeking manually into that final window does not skip the track, and `00:00` waits for natural completion. Natural track-end detection remains the fallback. If no eligible track remains, playback continues with the next sibling folder without wrapping at the final folder. Disabling Continue Play stops playback at the natural end.
+
+The top-level menus support `Alt+F` for File, `Alt+P` for Play, `Alt+A` for Actions, `Alt+S` for Settings, and `Alt+B` for About. These access keys do not replace or change configurable direct shortcuts.
 
 ## Playlist layout and playback queue
 

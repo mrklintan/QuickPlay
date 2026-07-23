@@ -8,7 +8,8 @@ internal static class SettingsTests
     {
         TestAssert.Equal(TimeSpan.FromMinutes(1), new ApplicationSettings().AuditionStartPosition);
         TestAssert.Equal(true, new ApplicationSettings().ContinuePlay);
-        TestAssert.Equal(TimeSpan.Zero, new ApplicationSettings().ContinuePlayStartPosition);
+        TestAssert.Equal(TimeSpan.FromSeconds(30), new ApplicationSettings().ContinuePlayStartPosition);
+        TestAssert.Equal(TimeSpan.FromSeconds(30), new ApplicationSettings().AdvanceBeforeTrackEnd);
         TestAssert.Equal(true, new ApplicationSettings().RemovePlayedTracks);
         TestAssert.Equal(5d, new ApplicationSettings().PlayedThresholdSeconds);
         var folder = Path.Combine(Path.GetTempPath(), $"QuickPlay-{Guid.NewGuid():N}");
@@ -16,11 +17,26 @@ internal static class SettingsTests
         try
         {
             var store = new JsonSettingsStore(path);
+            Directory.CreateDirectory(folder);
+            File.WriteAllText(
+                path,
+                """
+                {
+                  "ContinuePlay": false,
+                  "ContinuePlayStartPosition": "00:00:12"
+                }
+                """);
+            var migrated = store.Load();
+            TestAssert.Equal(true, migrated.ContinuePlay);
+            TestAssert.Equal(TimeSpan.FromSeconds(30), migrated.ContinuePlayStartPosition);
+            TestAssert.Equal(TimeSpan.FromSeconds(30), migrated.AdvanceBeforeTrackEnd);
+
             var settings = new ApplicationSettings
             {
                 AuditionStartPosition = TimeSpan.FromSeconds(42),
                 ContinuePlay = false,
                 ContinuePlayStartPosition = TimeSpan.FromSeconds(12),
+                AdvanceBeforeTrackEnd = TimeSpan.FromSeconds(18),
                 ShortSeekSeconds = 7,
                 LongSeekSeconds = 45,
                 RemovePlayedTracks = true,
@@ -51,6 +67,7 @@ internal static class SettingsTests
             TestAssert.Equal(TimeSpan.FromSeconds(42), loaded.AuditionStartPosition);
             TestAssert.Equal(false, loaded.ContinuePlay);
             TestAssert.Equal(TimeSpan.FromSeconds(12), loaded.ContinuePlayStartPosition);
+            TestAssert.Equal(TimeSpan.FromSeconds(18), loaded.AdvanceBeforeTrackEnd);
             TestAssert.Equal(7d, loaded.ShortSeekSeconds);
             TestAssert.Equal(45d, loaded.LongSeekSeconds);
             TestAssert.Equal(true, loaded.RemovePlayedTracks);

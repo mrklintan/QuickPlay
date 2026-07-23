@@ -11,8 +11,16 @@ public sealed class JsonSettingsStore(string filePath) : ISettingsStore
         if (!File.Exists(filePath)) return new ApplicationSettings();
         try
         {
-            var settings = JsonSerializer.Deserialize<ApplicationSettings>(File.ReadAllText(filePath), SerializerOptions)
+            var json = File.ReadAllText(filePath);
+            var settings = JsonSerializer.Deserialize<ApplicationSettings>(json, SerializerOptions)
                 ?? new ApplicationSettings();
+            using var document = JsonDocument.Parse(json);
+            if (!document.RootElement.TryGetProperty(nameof(ApplicationSettings.AdvanceBeforeTrackEnd), out _))
+            {
+                settings.ContinuePlay = true;
+                settings.ContinuePlayStartPosition = ApplicationSettings.DefaultContinuePlayStartPosition;
+                settings.AdvanceBeforeTrackEnd = ApplicationSettings.DefaultAdvanceBeforeTrackEnd;
+            }
             settings.EnsureDefaults();
             return settings;
         }

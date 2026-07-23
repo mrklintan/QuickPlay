@@ -3,8 +3,11 @@ namespace QuickPlay.Core;
 public sealed class ApplicationSettings
 {
     public static readonly TimeSpan DefaultAuditionStartPosition = TimeSpan.FromMinutes(1);
+    public static readonly TimeSpan DefaultContinuePlayStartPosition = TimeSpan.FromSeconds(30);
+    public static readonly TimeSpan DefaultAdvanceBeforeTrackEnd = TimeSpan.FromSeconds(30);
     private TimeSpan _auditionStartPosition = DefaultAuditionStartPosition;
-    private TimeSpan _continuePlayStartPosition = TimeSpan.Zero;
+    private TimeSpan _continuePlayStartPosition = DefaultContinuePlayStartPosition;
+    private TimeSpan _advanceBeforeTrackEnd = DefaultAdvanceBeforeTrackEnd;
     private double _shortSeekSeconds = 5;
     private double _longSeekSeconds = 30;
     private double _playedThresholdSeconds = 5;
@@ -41,6 +44,14 @@ public sealed class ApplicationSettings
         set => _continuePlayStartPosition = value >= TimeSpan.Zero
             ? value
             : throw new ArgumentOutOfRangeException(nameof(value), "Continue Play start position cannot be negative.");
+    }
+
+    public TimeSpan AdvanceBeforeTrackEnd
+    {
+        get => _advanceBeforeTrackEnd;
+        set => _advanceBeforeTrackEnd = value >= TimeSpan.Zero
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(value), "Advance-before-end duration cannot be negative.");
     }
 
     public bool RemovePlayedTracks { get; set; } = true;

@@ -27,12 +27,12 @@
         </Grid.RowDefinitions>
 
         <MenuBar Margin="-10,0,0,0">
-            <MenuBarItem Title="File">
+            <MenuBarItem x:Name="FileMenuItem" AccessKey="F" AccessKeyInvoked="OnTopLevelMenuAccessKeyInvoked" ExitDisplayModeOnAccessKeyInvoked="False" Title="File">
                 <MenuFlyoutItem Text="Open Folder..." KeyboardAcceleratorTextOverride="Ctrl+O" Click="OnChooseFolder" />
                 <MenuFlyoutSeparator />
-                <MenuFlyoutItem Text="Exit" Click="OnExit" />
+                <MenuFlyoutItem AccessKey="X" Text="Exit..." Click="OnExit" />
             </MenuBarItem>
-            <MenuBarItem Title="Play">
+            <MenuBarItem x:Name="PlayMenuItem" AccessKey="P" AccessKeyInvoked="OnTopLevelMenuAccessKeyInvoked" ExitDisplayModeOnAccessKeyInvoked="False" Title="Play">
                 <MenuFlyoutItem x:Name="PlayPauseMenuItem" Text="Play / Pause" Tag="PlayPause" Click="OnApplicationCommandMenuItemClick" />
                 <MenuFlyoutItem x:Name="PreviousTrackMenuItem" Text="Previous Track" Tag="PreviousTrack" Click="OnApplicationCommandMenuItemClick" />
                 <MenuFlyoutItem x:Name="NextTrackMenuItem" Text="Next Track" Tag="NextTrack" Click="OnApplicationCommandMenuItemClick" />
@@ -42,25 +42,25 @@
                 <MenuFlyoutItem x:Name="SeekBackwardLongMenuItem" Text="Seek Backward Long" Tag="SeekBackwardLong" Click="OnApplicationCommandMenuItemClick" />
                 <MenuFlyoutItem x:Name="SeekForwardLongMenuItem" Text="Seek Forward Long" Tag="SeekForwardLong" Click="OnApplicationCommandMenuItemClick" />
                 <MenuFlyoutSeparator />
-                <MenuFlyoutItem Text="Clear Playlist..." Click="OnClearPlaylist" />
+                <MenuFlyoutItem AccessKey="C" Text="Clear Playlist..." Click="OnClearPlaylist" />
             </MenuBarItem>
-            <MenuBarItem Title="Actions">
+            <MenuBarItem x:Name="ActionsMenuItem" AccessKey="A" AccessKeyInvoked="OnTopLevelMenuAccessKeyInvoked" ExitDisplayModeOnAccessKeyInvoked="False" Title="Actions">
                 <MenuFlyoutItem x:Name="PreviousFolderMenuItem" Text="Previous Sibling Folder" Tag="PreviousFolder" Click="OnApplicationCommandMenuItemClick" />
                 <MenuFlyoutItem x:Name="NextFolderMenuItem" Text="Next Sibling Folder" Tag="NextFolder" Click="OnApplicationCommandMenuItemClick" />
                 <MenuFlyoutSeparator />
                 <MenuFlyoutItem x:Name="CopyTrackMenuItem" Text="Copy Playing / Loaded Track" Tag="CopyCurrentTrack" Click="OnApplicationCommandMenuItemClick" />
-                <MenuFlyoutItem Text="Open Current File in File Explorer" Click="OnOpenCurrentFileInExplorer" />
+                <MenuFlyoutItem AccessKey="E" Text="Open Current File in File Explorer" Click="OnOpenCurrentFileInExplorer" />
                 <MenuFlyoutItem x:Name="DeleteTrackMenuItem" Text="Move Current Track to Recycle Bin" Tag="DeleteCurrentTrack" Click="OnApplicationCommandMenuItemClick" />
             </MenuBarItem>
-            <MenuBarItem Title="Settings">
-                <MenuFlyoutItem Text="Settings..." Click="OnGeneralSettings" />
-                <MenuFlyoutItem Text="Keyboard..." Click="OnShortcutSettings" />
-                <MenuFlyoutItem Text="Playlist Columns..." Click="OnPlaylistColumnsSettings" />
+            <MenuBarItem x:Name="SettingsMenuItem" AccessKey="S" AccessKeyInvoked="OnTopLevelMenuAccessKeyInvoked" ExitDisplayModeOnAccessKeyInvoked="False" Title="Settings">
+                <MenuFlyoutItem AccessKey="S" Text="Settings..." Click="OnGeneralSettings" />
+                <MenuFlyoutItem AccessKey="K" Text="Keyboard..." Click="OnShortcutSettings" />
+                <MenuFlyoutItem AccessKey="L" Text="Playlist Columns..." Click="OnPlaylistColumnsSettings" />
             </MenuBarItem>
-            <MenuBarItem Title="About">
-                <MenuFlyoutItem Text="Check for Updates" Click="OnCheckForUpdates" />
+            <MenuBarItem x:Name="AboutMenuItem" AccessKey="B" AccessKeyInvoked="OnTopLevelMenuAccessKeyInvoked" ExitDisplayModeOnAccessKeyInvoked="False" Title="About">
+                <MenuFlyoutItem AccessKey="U" Text="Check for Updates" Click="OnCheckForUpdates" />
                 <MenuFlyoutSeparator />
-                <MenuFlyoutItem Text="About QuickPlay..." Click="OnAbout" />
+                <MenuFlyoutItem AccessKey="A" Text="About QuickPlay..." Click="OnAbout" />
             </MenuBarItem>
         </MenuBar>
 

@@ -6,9 +6,8 @@ using System.Runtime.InteropServices;
 
 namespace QuickPlay.WinUI;
 
-public sealed class ShortcutSettingsDialog
+public sealed class KeyboardSettingsPage
 {
-    private readonly ContentDialog _dialog = new();
     private readonly nint _ownerWindowHandle;
     private readonly Dictionary<ApplicationCommand, ShortcutGesture> _shortcuts = [];
     private readonly Dictionary<ApplicationCommand, TextBlock> _gestureLabels = [];
@@ -26,16 +25,9 @@ public sealed class ShortcutSettingsDialog
 
     private ApplicationCommand? _capturingCommand;
 
-    public ShortcutSettingsDialog(ApplicationSettings settings, nint ownerWindowHandle)
+    public KeyboardSettingsPage(ApplicationSettings settings, nint ownerWindowHandle)
     {
         _ownerWindowHandle = ownerWindowHandle;
-        _dialog.Title = "Keyboard shortcuts";
-        _dialog.PrimaryButtonText = "Save";
-        _dialog.SecondaryButtonText = "Cancel";
-        _dialog.DefaultButton = ContentDialogButton.Primary;
-        _dialog.PrimaryButtonClick += OnPrimaryButtonClick;
-        _dialog.PreviewKeyDown += OnPreviewKeyDown;
-
         var defaults = ShortcutDefaults.Create();
         foreach (var command in Enum.GetValues<ApplicationCommand>())
         {
@@ -44,16 +36,10 @@ public sealed class ShortcutSettingsDialog
                 : defaults[command];
         }
 
-        _dialog.Content = BuildContent();
+        Content = BuildContent();
     }
 
-    public XamlRoot? XamlRoot
-    {
-        get => _dialog.XamlRoot;
-        set => _dialog.XamlRoot = value;
-    }
-
-    public async Task<ContentDialogResult> ShowAsync() => await _dialog.ShowAsync();
+    public UIElement Content { get; }
 
     public void ApplyTo(ApplicationSettings settings)
     {
@@ -64,19 +50,21 @@ public sealed class ShortcutSettingsDialog
     {
         var layout = new Grid
         {
-            MinWidth = 500,
+            MinWidth = 620,
             RowSpacing = 12
         };
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(210) });
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        var introduction = new TextBlock
-        {
-            Text = "Choose an action and press the key combination you want to use.",
-            TextWrapping = TextWrapping.Wrap
-        };
+        layout.Children.Add(PlaybackSettingsPage.CreateHeading(
+            "Keyboard",
+            "Choose an action and press the key combination you want to use."));
+
+        var introduction = new TextBlock { Text = "Select an action below to capture a new shortcut." };
+        Grid.SetRow(introduction, 1);
         layout.Children.Add(introduction);
 
         var commandList = new StackPanel { Spacing = 4 };
@@ -91,10 +79,10 @@ public sealed class ShortcutSettingsDialog
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollMode = ScrollMode.Auto
         };
-        Grid.SetRow(scrollViewer, 1);
+        Grid.SetRow(scrollViewer, 2);
         layout.Children.Add(scrollViewer);
 
-        Grid.SetRow(_captureMessage, 2);
+        Grid.SetRow(_captureMessage, 3);
         layout.Children.Add(_captureMessage);
 
         var footer = new Grid { ColumnSpacing = 12 };
@@ -105,7 +93,7 @@ public sealed class ShortcutSettingsDialog
         footer.Children.Add(resetButton);
         Grid.SetColumn(_warningText, 1);
         footer.Children.Add(_warningText);
-        Grid.SetRow(footer, 3);
+        Grid.SetRow(footer, 4);
         layout.Children.Add(footer);
 
         return layout;
@@ -154,7 +142,7 @@ public sealed class ShortcutSettingsDialog
         _captureMessage.Text = $"Press the new shortcut for {ShortcutDefaults.Label(command)}. Press Esc to cancel.";
     }
 
-    private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs e)
+    public void HandlePreviewKeyDown(KeyRoutedEventArgs e)
     {
         if (_capturingCommand is not ApplicationCommand command) return;
         if (KeyboardGestureFactory.IsModifier(e.Key)) return;
@@ -211,7 +199,7 @@ public sealed class ShortcutSettingsDialog
         _captureMessage.Text = "Defaults restored. Select Save to apply them.";
     }
 
-    private void OnPrimaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
+    public bool TryValidate()
     {
         var duplicate = _shortcuts
             .Where(pair => pair.Value.IsAssigned)
@@ -220,10 +208,10 @@ public sealed class ShortcutSettingsDialog
         if (duplicate is not null)
         {
             _warningText.Text = $"{duplicate.Key.DisplayText} is assigned more than once.";
-            args.Cancel = true;
-            return;
+            return false;
         }
 
+        return true;
     }
 
     private const uint MessageBoxYesNo = 0x00000004;

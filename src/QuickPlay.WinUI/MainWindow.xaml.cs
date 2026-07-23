@@ -5,7 +5,9 @@ using QuickPlay.Core;
 using QuickPlay.Waveform;
 using QuickPlay.WinUI.Services;
 using Microsoft.UI;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
@@ -59,6 +61,9 @@ public sealed partial class MainWindow : Window
     private bool _naturalEndHandled;
     private bool _pausedByUser;
     private bool _updateCheckInProgress;
+    private TimeSpan _lastObservedPlaybackPosition;
+    private bool _exitConfirmed;
+    private bool _exitConfirmationOpen;
 
     public ObservableCollection<TrackListItemViewModel> Tracks { get; } = [];
 
@@ -80,6 +85,7 @@ public sealed partial class MainWindow : Window
         _player = new AudioPlayer(new BassAudioBackend());
         _playback = new PlaybackController(_queue, _player, _settings);
         _positionTimer.Tick += OnPositionTimerTick;
+        AppWindow.Closing += OnAppWindowClosing;
         Closed += OnClosed;
     }
 
@@ -267,7 +273,50 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void OnExit(object sender, RoutedEventArgs e) => Close();
+    private void OnExit(object sender, RoutedEventArgs e)
+    {
+        if (_exitConfirmed || _exitConfirmationOpen || _dialogOpen) return;
+        _ = ConfirmExitAsync();
+    }
+
+    private void OnAppWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
+    {
+        if (_exitConfirmed) return;
+        args.Cancel = true;
+        if (_exitConfirmationOpen || _dialogOpen) return;
+        _ = ConfirmExitAsync();
+    }
+
+    private async Task ConfirmExitAsync()
+    {
+        _exitConfirmationOpen = true;
+        _dialogOpen = true;
+        var dialog = new ContentDialog
+        {
+            XamlRoot = RootGrid.XamlRoot,
+            Title = "Exit QuickPlay?",
+            PrimaryButtonText = "Exit",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            Content = new TextBlock
+            {
+                Text = "Are you sure you want to exit QuickPlay?",
+                TextWrapping = TextWrapping.Wrap
+            }
+        };
+        try
+        {
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+            _exitConfirmed = true;
+            Close();
+        }
+        finally
+        {
+            _dialogOpen = false;
+            _exitConfirmationOpen = false;
+            if (!_exitConfirmed) FocusPlaybackSurface();
+        }
+    }
 
     private async void OnClearPlaylist(object sender, RoutedEventArgs e)
     {
@@ -343,6 +392,32 @@ public sealed partial class MainWindow : Window
             ExecuteCommand(command);
     }
 
+    private void OnTopLevelMenuAccessKeyInvoked(
+        UIElement sender,
+        AccessKeyInvokedEventArgs args)
+    {
+        if (sender is not MenuBarItem menuItem) return;
+        new MenuBarItemAutomationPeer(menuItem).Invoke();
+        args.Handled = true;
+    }
+
+    private bool TryOpenTopLevelMenu(ShortcutGesture gesture)
+    {
+        if (gesture.Modifiers != ShortcutModifiers.Alt) return false;
+        var menuItem = (VirtualKey)gesture.Key switch
+        {
+            VirtualKey.F => FileMenuItem,
+            VirtualKey.P => PlayMenuItem,
+            VirtualKey.A => ActionsMenuItem,
+            VirtualKey.S => SettingsMenuItem,
+            VirtualKey.B => AboutMenuItem,
+            _ => null
+        };
+        if (menuItem is null) return false;
+        new MenuBarItemAutomationPeer(menuItem).Invoke();
+        return true;
+    }
+
     private void UpdateMenuShortcutLabels()
     {
         var menuItems = new (MenuFlyoutItem Item, ApplicationCommand Command)[]
@@ -372,6 +447,11 @@ public sealed partial class MainWindow : Window
     {
         if (_dialogOpen || KeyboardGestureFactory.IsModifier(e.Key)) return;
         var gesture = KeyboardGestureFactory.Create(e.Key);
+        if (TryOpenTopLevelMenu(gesture))
+        {
+            e.Handled = true;
+            return;
+        }
         if (gesture == new ShortcutGesture((int)VirtualKey.O, ShortcutModifiers.Control))
         {
             e.Handled = true;
@@ -452,31 +532,21 @@ public sealed partial class MainWindow : Window
         container.ContextFlyout = menu;
     }
 
-    private async void OnGeneralSettings(object sender, RoutedEventArgs e)
-    {
-        var dialog = new GeneralSettingsDialog(_settings)
-        {
-            XamlRoot = RootGrid.XamlRoot
-        };
-        _dialogOpen = true;
-        try
-        {
-            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
-            dialog.ApplyTo(_settings);
-            _settingsStore.Save(_settings);
-            StatusText.Text = "Settings saved.";
-            RootGrid.Focus(FocusState.Programmatic);
-        }
-        finally
-        {
-            _dialogOpen = false;
-            FocusPlaybackSurface();
-        }
-    }
+    private async void OnGeneralSettings(object sender, RoutedEventArgs e) =>
+        await ShowSettingsAsync(SettingsCategory.Playback);
 
-    private async void OnShortcutSettings(object sender, RoutedEventArgs e)
+    private async void OnShortcutSettings(object sender, RoutedEventArgs e) =>
+        await ShowSettingsAsync(SettingsCategory.Keyboard);
+
+    private async void OnPlaylistColumnsSettings(object sender, RoutedEventArgs e) =>
+        await ShowSettingsAsync(SettingsCategory.Playlist);
+
+    private async Task ShowSettingsAsync(SettingsCategory initialCategory)
     {
-        var dialog = new ShortcutSettingsDialog(_settings, WindowNative.GetWindowHandle(this))
+        var dialog = new SettingsDialog(
+            _settings,
+            WindowNative.GetWindowHandle(this),
+            initialCategory)
         {
             XamlRoot = RootGrid.XamlRoot
         };
@@ -487,30 +557,8 @@ public sealed partial class MainWindow : Window
             dialog.ApplyTo(_settings);
             _settingsStore.Save(_settings);
             UpdateMenuShortcutLabels();
-            StatusText.Text = "Keyboard shortcuts saved.";
-            RootGrid.Focus(FocusState.Programmatic);
-        }
-        finally
-        {
-            _dialogOpen = false;
-            FocusPlaybackSurface();
-        }
-    }
-
-    private async void OnPlaylistColumnsSettings(object sender, RoutedEventArgs e)
-    {
-        var dialog = new PlaylistColumnsDialog(_settings.PlaylistLayout)
-        {
-            XamlRoot = RootGrid.XamlRoot
-        };
-        _dialogOpen = true;
-        try
-        {
-            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
-            dialog.ApplyTo(_settings.PlaylistLayout);
-            _settingsStore.Save(_settings);
             ApplyPlaylistLayout(reorderQueue: true);
-            StatusText.Text = "Playlist columns saved.";
+            StatusText.Text = "Settings saved.";
             RootGrid.Focus(FocusState.Programmatic);
         }
         finally
@@ -567,6 +615,7 @@ public sealed partial class MainWindow : Window
         UpdatePlaybackStyles();
         _naturalEndHandled = false;
         _pausedByUser = false;
+        _lastObservedPlaybackPosition = startPosition.Value;
         StatusText.Text = $"Playing {track.DisplayName} from {FormatPosition(startPosition.Value)}";
         ResetPlaybackClock();
         UpdateTimeDisplay();
@@ -595,6 +644,9 @@ public sealed partial class MainWindow : Window
         var position = _playback.SeekToFraction(Math.Clamp(point.X / WaveformCanvas.ActualWidth, 0, 1));
         if (position is not null)
         {
+            _lastObservedPlaybackPosition = position.Value;
+            _pausedByUser = false;
+            StartPlaybackClock();
             StatusText.Text = $"Playing from {FormatPosition(position.Value)}";
             UpdateTimeDisplay();
         }
@@ -845,6 +897,7 @@ public sealed partial class MainWindow : Window
             try { await handoff.ShowAsync(); }
             finally { _dialogOpen = false; }
             closingForUpdate = true;
+            _exitConfirmed = true;
             Close();
         }
         catch (Exception exception)
@@ -1168,16 +1221,20 @@ public sealed partial class MainWindow : Window
         return false;
     }
 
-    private async void HandleNaturalEnd()
+    private async void HandleContinuePlayback()
     {
         if (_naturalEndHandled || !_playlistReadyForNavigation || _playback.CurrentTrack is null)
             return;
-        var action = NaturalPlaybackEndPolicy.Resolve(
+        var position = _playback.Position;
+        var action = ContinuePlaybackPolicy.Resolve(
                 _settings.ContinuePlay,
-                _playback.Position,
+                _lastObservedPlaybackPosition,
+                position,
                 _playback.Duration,
+                _settings.AdvanceBeforeTrackEnd,
                 _playback.IsPlaying,
                 _pausedByUser);
+        _lastObservedPlaybackPosition = position;
         if (action == NaturalPlaybackEndAction.None) return;
 
         _naturalEndHandled = true;
@@ -1262,6 +1319,9 @@ public sealed partial class MainWindow : Window
         {
             var position = _playback.SeekBy(offset);
             if (position is null) return;
+            _lastObservedPlaybackPosition = position.Value;
+            _pausedByUser = false;
+            StartPlaybackClock();
             StatusText.Text = $"Playing from {FormatPosition(position.Value)}";
             UpdateTimeDisplay();
         }
@@ -1575,7 +1635,7 @@ public sealed partial class MainWindow : Window
     {
         UpdateCurrentCompletionStatus();
         UpdateTimeDisplay();
-        HandleNaturalEnd();
+        HandleContinuePlayback();
     }
 
     private void UpdateTimeDisplay()

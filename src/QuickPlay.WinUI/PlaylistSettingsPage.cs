@@ -4,9 +4,8 @@ using Microsoft.UI.Xaml.Controls;
 
 namespace QuickPlay.WinUI;
 
-public sealed class PlaylistColumnsDialog
+public sealed class PlaylistSettingsPage
 {
-    private readonly ContentDialog _dialog = new();
     private readonly ListView _activeList = new() { SelectionMode = ListViewSelectionMode.Single };
     private readonly ListView _availableList = new() { SelectionMode = ListViewSelectionMode.Single };
     private readonly Button _addButton = new() { Content = "Add" };
@@ -16,17 +15,11 @@ public sealed class PlaylistColumnsDialog
     private readonly List<PlaylistColumn> _activeColumns;
     private bool _resetWidths;
 
-    public PlaylistColumnsDialog(PlaylistLayoutSettings layout)
+    public PlaylistSettingsPage(PlaylistLayoutSettings layout)
     {
         layout.EnsureValid();
         _activeColumns = [.. layout.Columns];
-        _dialog.Title = "Playlist Columns";
-        _dialog.PrimaryButtonText = "Save";
-        _dialog.SecondaryButtonText = "Cancel";
-        _dialog.DefaultButton = ContentDialogButton.Primary;
-        _dialog.Resources["ContentDialogMinWidth"] = 820d;
-        _dialog.Resources["ContentDialogMaxWidth"] = 900d;
-        _dialog.Content = BuildContent();
+        Content = BuildContent();
 
         _activeList.SelectionChanged += OnSelectionChanged;
         _availableList.SelectionChanged += OnSelectionChanged;
@@ -37,13 +30,7 @@ public sealed class PlaylistColumnsDialog
         RefreshLists();
     }
 
-    public XamlRoot? XamlRoot
-    {
-        get => _dialog.XamlRoot;
-        set => _dialog.XamlRoot = value;
-    }
-
-    public async Task<ContentDialogResult> ShowAsync() => await _dialog.ShowAsync();
+    public UIElement Content { get; }
 
     public void ApplyTo(PlaylistLayoutSettings layout)
     {
@@ -54,7 +41,12 @@ public sealed class PlaylistColumnsDialog
 
     private UIElement BuildContent()
     {
-        var layout = new Grid { Width = 760, RowSpacing = 12, ColumnSpacing = 18 };
+        var root = new StackPanel { MinWidth = 680, Spacing = 18 };
+        root.Children.Add(PlaybackSettingsPage.CreateHeading(
+            "Playlist",
+            "Choose which metadata columns are visible and arrange their order."));
+
+        var layout = new Grid { Width = 680, RowSpacing = 12, ColumnSpacing = 18 };
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(280) });
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -100,7 +92,8 @@ public sealed class PlaylistColumnsDialog
         Grid.SetColumn(help, 1);
         Grid.SetColumnSpan(help, 2);
         layout.Children.Add(help);
-        return layout;
+        root.Children.Add(layout);
+        return root;
     }
 
     private void RefreshLists(PlaylistColumn? selectActive = null, PlaylistColumn? selectAvailable = null)
