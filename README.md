@@ -121,7 +121,7 @@ To build the per-user x64 MSI (including a fresh complete publish):
 dotnet build .\installer\QuickPlay.Installer\QuickPlay.Installer.wixproj -c Release -p:Platform=x64
 ```
 
-The installer is written to `installer\QuickPlay.Installer\bin\x64\Release\en-US\QuickPlay-1.3.2.0-x64.msi`. Double-click it for the normal interactive setup: review and accept the MIT and third-party terms, install, then close the completion confirmation. It installs without elevation under `%LOCALAPPDATA%\Programs\QuickPlay`, creates a Start Menu shortcut named **QuickPlay**, and supports standard uninstall and future major upgrades.
+The installer is written to `installer\QuickPlay.Installer\bin\x64\Release\en-US\QuickPlay-1.3.3.0-x64.msi`. Double-click it for the normal interactive setup: review and accept the MIT and third-party terms, install, then close the completion confirmation. It installs without elevation under `%LOCALAPPDATA%\Programs\QuickPlay`, creates a Start Menu shortcut named **QuickPlay**, and supports standard uninstall and future major upgrades.
 
 Use **About → Check for Updates** to compare the installed version with the latest GitHub release. When a newer release is available, QuickPlay downloads its x64 MSI to a temporary folder and starts the normal interactive installer. QuickPlay closes only after you acknowledge the handoff message; complete the installer separately and then restart QuickPlay from the Start menu.
 

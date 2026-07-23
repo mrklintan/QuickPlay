@@ -16,7 +16,7 @@ The script creates an exportable code-signing certificate in `Cert:\CurrentUser\
 dotnet publish .\src\QuickPlay.WinUI\QuickPlay.WinUI.csproj -c Release -r win-x64 --self-contained true -p:Platform=x64
 .\scripts\Sign-QuickPlayArtifacts.ps1 -CertificateThumbprint '<thumbprint>' -Files '.\src\QuickPlay.WinUI\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\QuickPlay.WinUI.exe'
 dotnet build .\installer\QuickPlay.Installer\QuickPlay.Installer.wixproj -c Release -p:Platform=x64 -p:SkipQuickPlayPublish=true
-.\scripts\Sign-QuickPlayArtifacts.ps1 -CertificateThumbprint '<thumbprint>' -Files '.\installer\QuickPlay.Installer\bin\x64\Release\en-US\QuickPlay-1.3.2.0-x64.msi'
+.\scripts\Sign-QuickPlayArtifacts.ps1 -CertificateThumbprint '<thumbprint>' -Files '.\installer\QuickPlay.Installer\bin\x64\Release\en-US\QuickPlay-1.3.3.0-x64.msi'
 ```
 
 Signing the executable before building the MSI ensures that the packaged executable is signed. Signing the MSI afterward signs the installer container.
@@ -25,7 +25,7 @@ Signing the executable before building the MSI ensures that the packaged executa
 
 ```powershell
 Get-AuthenticodeSignature '.\src\QuickPlay.WinUI\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\QuickPlay.WinUI.exe' | Format-List
-Get-AuthenticodeSignature '.\installer\QuickPlay.Installer\bin\x64\Release\en-US\QuickPlay-1.3.2.0-x64.msi' | Format-List
+Get-AuthenticodeSignature '.\installer\QuickPlay.Installer\bin\x64\Release\en-US\QuickPlay-1.3.3.0-x64.msi' | Format-List
 ```
 
 The signing script also runs Windows SDK `signtool verify`. A self-signed signature can report an untrusted root on another computer even when its cryptographic integrity is valid. Trust the public certificate only on controlled test systems; do not distribute or trust the private key.

@@ -2,7 +2,7 @@
   <PropertyGroup>
     <Platform>x64</Platform>
     <InstallerPlatform>x64</InstallerPlatform>
-    <QuickPlayVersion>1.3.2.0</QuickPlayVersion>
+    <QuickPlayVersion>$(QuickPlayReleaseVersion)</QuickPlayVersion>
     <OutputName>QuickPlay-$(QuickPlayVersion)-x64</OutputName>
     <OutputType>Package</OutputType>
     <!-- WiX file harvesting reads invalid language metadata from some self-contained .NET runtime binaries.
