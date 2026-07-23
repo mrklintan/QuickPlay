@@ -7,7 +7,7 @@
 <br />
 
 <h3 align="center">
-  🍕 <a href="https://gate.sc/?url=http%3A%2F%2Fko-fi.com%2Fmrklintan&token=633c6f-1-1784833790045" target="_new">Support QuickPlay on Ko-fi</a>
+  🍕 <a href="https://gate.sc/?url=http%3A%2F%2Fko-fi.com%2Fmrklintan&token=633c6f-1-1784833790045">Support QuickPlay on Ko-fi</a>
 </h3>
 
 <br />
