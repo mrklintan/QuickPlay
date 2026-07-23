@@ -4,6 +4,8 @@
   <img src="src/QuickPlay.WinUI/Assets/QuickPlay.png" width="192" height="192" alt="QuickPlay application icon" />
 </p>
 
+[Support QuickPlay on Ko-fi](https://gate.sc/?url=http%3A%2F%2Fko-fi.com%2Fmrklintan&token=633c6f-1-1784833790045)
+
 <img width="1920" height="1020" alt="image" src="https://github.com/user-attachments/assets/c159db01-786f-4c17-93f7-0d2af7dd236b" />
 
 
