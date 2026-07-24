@@ -10,9 +10,21 @@ internal static class ContinuePlaybackPolicyTests
         var advance = TimeSpan.FromSeconds(30);
 
         TestAssert.Equal(
+            TimeSpan.Zero,
+            ContinuePlaybackPolicy.AutomaticStartPosition(
+                djMode: false,
+                djStartPosition: TimeSpan.FromSeconds(30)));
+        TestAssert.Equal(
+            TimeSpan.FromSeconds(30),
+            ContinuePlaybackPolicy.AutomaticStartPosition(
+                djMode: true,
+                djStartPosition: TimeSpan.FromSeconds(30)));
+
+        TestAssert.Equal(
             NaturalPlaybackEndAction.Continue,
             ContinuePlaybackPolicy.Resolve(
                 continuePlay: true,
+                djMode: true,
                 previousPosition: TimeSpan.FromSeconds(209.8),
                 position: TimeSpan.FromSeconds(210.1),
                 duration,
@@ -24,6 +36,7 @@ internal static class ContinuePlaybackPolicyTests
             NaturalPlaybackEndAction.None,
             ContinuePlaybackPolicy.Resolve(
                 continuePlay: true,
+                djMode: true,
                 previousPosition: TimeSpan.FromSeconds(235),
                 position: TimeSpan.FromSeconds(235.2),
                 duration,
@@ -35,6 +48,7 @@ internal static class ContinuePlaybackPolicyTests
             NaturalPlaybackEndAction.None,
             ContinuePlaybackPolicy.Resolve(
                 continuePlay: true,
+                djMode: true,
                 previousPosition: TimeSpan.FromSeconds(209.8),
                 position: TimeSpan.FromSeconds(210.1),
                 duration,
@@ -46,6 +60,7 @@ internal static class ContinuePlaybackPolicyTests
             NaturalPlaybackEndAction.None,
             ContinuePlaybackPolicy.Resolve(
                 continuePlay: true,
+                djMode: true,
                 previousPosition: TimeSpan.FromSeconds(5),
                 position: TimeSpan.FromSeconds(5.2),
                 duration: TimeSpan.FromSeconds(20),
@@ -54,9 +69,22 @@ internal static class ContinuePlaybackPolicyTests
                 isPausedByUser: false));
 
         TestAssert.Equal(
+            NaturalPlaybackEndAction.None,
+            ContinuePlaybackPolicy.Resolve(
+                continuePlay: true,
+                djMode: false,
+                previousPosition: TimeSpan.FromSeconds(209.8),
+                position: TimeSpan.FromSeconds(210.1),
+                duration,
+                advance,
+                isPlaying: true,
+                isPausedByUser: false));
+
+        TestAssert.Equal(
             NaturalPlaybackEndAction.Continue,
             ContinuePlaybackPolicy.Resolve(
                 continuePlay: true,
+                djMode: false,
                 previousPosition: duration - TimeSpan.FromSeconds(1),
                 position: duration,
                 duration,
@@ -68,6 +96,7 @@ internal static class ContinuePlaybackPolicyTests
             NaturalPlaybackEndAction.Stop,
             ContinuePlaybackPolicy.Resolve(
                 continuePlay: false,
+                djMode: true,
                 previousPosition: duration - TimeSpan.FromSeconds(1),
                 position: duration,
                 duration,

@@ -8,6 +8,7 @@ internal static class SettingsTests
     {
         TestAssert.Equal(TimeSpan.FromMinutes(1), new ApplicationSettings().AuditionStartPosition);
         TestAssert.Equal(true, new ApplicationSettings().ContinuePlay);
+        TestAssert.Equal(false, new ApplicationSettings().DjMode);
         TestAssert.Equal(TimeSpan.FromSeconds(30), new ApplicationSettings().ContinuePlayStartPosition);
         TestAssert.Equal(TimeSpan.FromSeconds(30), new ApplicationSettings().AdvanceBeforeTrackEnd);
         TestAssert.Equal(true, new ApplicationSettings().RemovePlayedTracks);
@@ -28,13 +29,30 @@ internal static class SettingsTests
                 """);
             var migrated = store.Load();
             TestAssert.Equal(true, migrated.ContinuePlay);
+            TestAssert.Equal(false, migrated.DjMode);
             TestAssert.Equal(TimeSpan.FromSeconds(30), migrated.ContinuePlayStartPosition);
             TestAssert.Equal(TimeSpan.FromSeconds(30), migrated.AdvanceBeforeTrackEnd);
+
+            File.WriteAllText(
+                path,
+                """
+                {
+                  "ContinuePlay": false,
+                  "ContinuePlayStartPosition": "00:00:12",
+                  "AdvanceBeforeTrackEnd": "00:00:18"
+                }
+                """);
+            var previousRelease = store.Load();
+            TestAssert.Equal(false, previousRelease.ContinuePlay);
+            TestAssert.Equal(false, previousRelease.DjMode);
+            TestAssert.Equal(TimeSpan.FromSeconds(12), previousRelease.ContinuePlayStartPosition);
+            TestAssert.Equal(TimeSpan.FromSeconds(18), previousRelease.AdvanceBeforeTrackEnd);
 
             var settings = new ApplicationSettings
             {
                 AuditionStartPosition = TimeSpan.FromSeconds(42),
                 ContinuePlay = false,
+                DjMode = true,
                 ContinuePlayStartPosition = TimeSpan.FromSeconds(12),
                 AdvanceBeforeTrackEnd = TimeSpan.FromSeconds(18),
                 ShortSeekSeconds = 7,
@@ -66,6 +84,7 @@ internal static class SettingsTests
             var loaded = store.Load();
             TestAssert.Equal(TimeSpan.FromSeconds(42), loaded.AuditionStartPosition);
             TestAssert.Equal(false, loaded.ContinuePlay);
+            TestAssert.Equal(true, loaded.DjMode);
             TestAssert.Equal(TimeSpan.FromSeconds(12), loaded.ContinuePlayStartPosition);
             TestAssert.Equal(TimeSpan.FromSeconds(18), loaded.AdvanceBeforeTrackEnd);
             TestAssert.Equal(7d, loaded.ShortSeekSeconds);

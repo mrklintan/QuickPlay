@@ -37,6 +37,7 @@ public sealed class ApplicationSettings
     }
 
     public bool ContinuePlay { get; set; } = true;
+    public bool DjMode { get; set; }
 
     public TimeSpan ContinuePlayStartPosition
     {

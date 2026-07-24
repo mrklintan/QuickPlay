@@ -17,6 +17,13 @@ public sealed class PlaybackSettingsPage
         OnContent = "On",
         OffContent = "Off"
     };
+    private readonly ToggleSwitch _djModeToggle = new()
+    {
+        Header = "DJ Mode",
+        OnContent = "On",
+        OffContent = "Off",
+        Margin = new Thickness(20, 0, 0, 0)
+    };
     private readonly TextBox _continuePlayPositionBox = CreateTimeBox(
         "Start next track at",
         "00:30",
@@ -67,12 +74,16 @@ public sealed class PlaybackSettingsPage
     {
         _auditionPositionBox.Text = FormatPosition(settings.AuditionStartPosition);
         _continuePlayToggle.IsOn = settings.ContinuePlay;
+        _djModeToggle.IsOn = settings.DjMode;
         _continuePlayPositionBox.Text = FormatPosition(settings.ContinuePlayStartPosition);
         _advanceBeforeEndBox.Text = FormatPosition(settings.AdvanceBeforeTrackEnd);
         _shortSeekBox.Value = settings.ShortSeekSeconds;
         _longSeekBox.Value = settings.LongSeekSeconds;
         _removePlayedTracksToggle.IsOn = settings.RemovePlayedTracks;
         _playedThresholdBox.Value = settings.PlayedThresholdSeconds;
+        _continuePlayToggle.Toggled += OnPlaybackModeToggled;
+        _djModeToggle.Toggled += OnPlaybackModeToggled;
+        UpdatePlaybackModeControls();
         Content = BuildContent();
     }
 
@@ -99,6 +110,7 @@ public sealed class PlaybackSettingsPage
     {
         settings.AuditionStartPosition = _validatedAuditionPosition;
         settings.ContinuePlay = _continuePlayToggle.IsOn;
+        settings.DjMode = _djModeToggle.IsOn;
         settings.ContinuePlayStartPosition = _validatedContinuePlayPosition;
         settings.AdvanceBeforeTrackEnd = _validatedAdvanceBeforeEnd;
         settings.ShortSeekSeconds = _shortSeekBox.Value;
@@ -114,8 +126,14 @@ public sealed class PlaybackSettingsPage
             "Playback",
             "Configure manual auditioning, automatic continuation, seeking, and played-track behavior."));
         layout.Children.Add(_auditionPositionBox);
-        layout.Children.Add(CreateSectionHeading("Continue Play"));
         layout.Children.Add(_continuePlayToggle);
+        layout.Children.Add(CreateDescription(
+            "Automatically play the next unplayed track. Full tracks start at 00:00 and play to their natural end."));
+        layout.Children.Add(_djModeToggle);
+        var djDescription = CreateDescription(
+            "Skip configured intros and outros while Continue Play is on.");
+        djDescription.Margin = new Thickness(20, 0, 0, 0);
+        layout.Children.Add(djDescription);
 
         var continueGrid = TwoColumnGrid();
         continueGrid.Children.Add(_continuePlayPositionBox);
@@ -155,6 +173,21 @@ public sealed class PlaybackSettingsPage
         return false;
     }
 
+    private void OnPlaybackModeToggled(object sender, RoutedEventArgs e) =>
+        UpdatePlaybackModeControls();
+
+    private void UpdatePlaybackModeControls()
+    {
+        _djModeToggle.IsEnabled = _continuePlayToggle.IsOn;
+        var djOptionsVisibility = _continuePlayToggle.IsOn && _djModeToggle.IsOn
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        _continuePlayPositionBox.Visibility = djOptionsVisibility;
+        _advanceBeforeEndBox.Visibility = djOptionsVisibility;
+        _continuePlayPositionBox.IsEnabled = _continuePlayToggle.IsOn;
+        _advanceBeforeEndBox.IsEnabled = _continuePlayToggle.IsOn;
+    }
+
     private static TextBox CreateTimeBox(string header, string placeholder, string description) => new()
     {
         Header = header,
@@ -183,6 +216,13 @@ public sealed class PlaybackSettingsPage
                 TextWrapping = TextWrapping.Wrap
             }
         }
+    };
+
+    private static TextBlock CreateDescription(string text) => new()
+    {
+        Text = text,
+        Foreground = new SolidColorBrush(Microsoft.UI.Colors.Gray),
+        TextWrapping = TextWrapping.Wrap
     };
 
     private static TextBlock CreateSectionHeading(string text) => new()

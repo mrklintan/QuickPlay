@@ -72,6 +72,7 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         var iconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "QuickPlay.ico");
         if (File.Exists(iconPath)) AppWindow.SetIcon(iconPath);
+        ConfigureTitleBar();
         RootGrid.AddHandler(UIElement.PreviewKeyDownEvent, new KeyEventHandler(OnKeyDown), true);
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var settingsPath = System.IO.Path.Combine(localAppData, "QuickPlay", "settings.json");
@@ -104,6 +105,7 @@ public sealed partial class MainWindow : Window
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         UpdateMenuShortcutLabels();
+        UpdateContinuePlaybackUi();
         ApplyPlaylistLayout(reorderQueue: false);
         _positionTimer.Start();
         RootGrid.Focus(FocusState.Programmatic);
@@ -557,6 +559,7 @@ public sealed partial class MainWindow : Window
             dialog.ApplyTo(_settings);
             _settingsStore.Save(_settings);
             UpdateMenuShortcutLabels();
+            UpdateContinuePlaybackUi();
             ApplyPlaylistLayout(reorderQueue: true);
             StatusText.Text = "Settings saved.";
             RootGrid.Focus(FocusState.Programmatic);
@@ -567,6 +570,93 @@ public sealed partial class MainWindow : Window
             FocusPlaybackSurface();
         }
     }
+
+    private void ConfigureTitleBar()
+    {
+        if (!AppWindowTitleBar.IsCustomizationSupported())
+        {
+            CustomTitleBar.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        ExtendsContentIntoTitleBar = true;
+        SetTitleBar(TitleBarDragRegion);
+        var titleBar = AppWindow.TitleBar;
+        titleBar.ButtonBackgroundColor = Colors.Transparent;
+        titleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
+        titleBar.ButtonForegroundColor = Colors.White;
+        titleBar.ButtonInactiveForegroundColor = Colors.Gray;
+        AppWindow.Changed += (_, _) => UpdateTitleBarLayout();
+        UpdateTitleBarLayout();
+    }
+
+    private void UpdateTitleBarLayout()
+    {
+        var titleBar = AppWindow.TitleBar;
+        CustomTitleBar.Height = titleBar.Height;
+        TitleBarRightInsetColumn.Width = new GridLength(titleBar.RightInset);
+    }
+
+    private void OnContinuePlayMenuClick(object sender, RoutedEventArgs e)
+    {
+        _settings.ContinuePlay = ContinuePlayMenuItem.IsChecked;
+        SaveContinuePlaybackMode();
+    }
+
+    private void OnDjModeMenuClick(object sender, RoutedEventArgs e)
+    {
+        _settings.DjMode = DjModeMenuItem.IsChecked;
+        SaveContinuePlaybackMode();
+    }
+
+    private void OnTitleBarPlaybackModeClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not RadioMenuFlyoutItem { Tag: string mode }) return;
+        switch (mode)
+        {
+            case "Full":
+                _settings.ContinuePlay = true;
+                _settings.DjMode = false;
+                break;
+            case "Dj":
+                _settings.ContinuePlay = true;
+                _settings.DjMode = true;
+                break;
+            case "Off":
+                _settings.ContinuePlay = false;
+                break;
+            default:
+                return;
+        }
+
+        SaveContinuePlaybackMode();
+    }
+
+    private void SaveContinuePlaybackMode()
+    {
+        _settingsStore.Save(_settings);
+        UpdateContinuePlaybackUi();
+        StatusText.Text = $"Continue playback set to {ContinuePlaybackModeLabel().ToLowerInvariant()}.";
+    }
+
+    private void UpdateContinuePlaybackUi()
+    {
+        ContinuePlayMenuItem.IsChecked = _settings.ContinuePlay;
+        DjModeMenuItem.IsChecked = _settings.DjMode;
+        DjModeMenuItem.IsEnabled = _settings.ContinuePlay;
+
+        ContinueFullTracksTitleBarItem.IsChecked = _settings.ContinuePlay && !_settings.DjMode;
+        ContinueDjModeTitleBarItem.IsChecked = _settings.ContinuePlay && _settings.DjMode;
+        ContinueOffTitleBarItem.IsChecked = !_settings.ContinuePlay;
+        ContinueModeTitleBarButton.Content = $"Continue: {ContinuePlaybackModeLabel()}";
+    }
+
+    private string ContinuePlaybackModeLabel() =>
+        !_settings.ContinuePlay
+            ? "Off"
+            : _settings.DjMode
+                ? "DJ Mode"
+                : "Full tracks";
 
     private async void OnAbout(object sender, RoutedEventArgs e)
     {
@@ -1228,6 +1318,7 @@ public sealed partial class MainWindow : Window
         var position = _playback.Position;
         var action = ContinuePlaybackPolicy.Resolve(
                 _settings.ContinuePlay,
+                _settings.DjMode,
                 _lastObservedPlaybackPosition,
                 position,
                 _playback.Duration,
@@ -1250,8 +1341,11 @@ public sealed partial class MainWindow : Window
 
         try
         {
+            var automaticStartPosition = ContinuePlaybackPolicy.AutomaticStartPosition(
+                _settings.DjMode,
+                _settings.ContinuePlayStartPosition);
             var startPosition = _playback.MoveNextAndPlayFrom(
-                _settings.ContinuePlayStartPosition,
+                automaticStartPosition,
                 _settings.RemovePlayedTracks);
             if (startPosition is not null)
             {
@@ -1271,7 +1365,7 @@ public sealed partial class MainWindow : Window
             await OpenFolderAsync(
                 nextFolder,
                 autoPlay: true,
-                autoPlayStartPosition: _settings.ContinuePlayStartPosition);
+                autoPlayStartPosition: automaticStartPosition);
         }
         catch (Exception exception)
         {

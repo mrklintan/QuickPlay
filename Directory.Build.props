@@ -9,7 +9,7 @@
          assembly, and the MSI. Public MSI upgrades must increase one of the
          first three fields because Windows Installer ignores the fourth field
          for product-version ordering. -->
-    <QuickPlayReleaseVersion>1.3.3.0</QuickPlayReleaseVersion>
+    <QuickPlayReleaseVersion>1.3.4.0</QuickPlayReleaseVersion>
     <Version>$(QuickPlayReleaseVersion)</Version>
     <AssemblyVersion>$(QuickPlayReleaseVersion)</AssemblyVersion>
     <FileVersion>$(QuickPlayReleaseVersion)</FileVersion>

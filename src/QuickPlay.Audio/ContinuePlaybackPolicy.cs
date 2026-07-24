@@ -2,8 +2,12 @@ namespace QuickPlay.Audio;
 
 public static class ContinuePlaybackPolicy
 {
+    public static TimeSpan AutomaticStartPosition(bool djMode, TimeSpan djStartPosition) =>
+        djMode ? djStartPosition : TimeSpan.Zero;
+
     public static NaturalPlaybackEndAction Resolve(
         bool continuePlay,
+        bool djMode,
         TimeSpan previousPosition,
         TimeSpan position,
         TimeSpan duration,
@@ -19,6 +23,7 @@ public static class ContinuePlaybackPolicy
         }
 
         if (!continuePlay ||
+            !djMode ||
             !isPlaying ||
             isPausedByUser ||
             advanceBeforeTrackEnd <= TimeSpan.Zero ||
