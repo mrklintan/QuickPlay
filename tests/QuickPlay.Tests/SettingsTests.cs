@@ -72,14 +72,6 @@ internal static class SettingsTests
             settings.PlaylistLayout.ColumnWidths[PlaylistColumn.Artist] = 245;
             settings.PlaylistLayout.SortColumn = PlaylistColumn.Energy;
             settings.PlaylistLayout.SortDirection = PlaylistSortDirection.Descending;
-            settings.PlaylistSession.FolderPath = @"C:\Music\Album";
-            settings.PlaylistSession.CurrentTrackPath = @"C:\Music\Album\02.wav";
-            settings.PlaylistSession.PlaylistFiles =
-            [
-                @"C:\Music\Album\02.wav",
-                @"C:\Music\Album\03.wav"
-            ];
-            settings.PlaylistSession.CompletedFiles = [@"C:\Music\Album\02.wav"];
             store.Save(settings);
             var loaded = store.Load();
             TestAssert.Equal(TimeSpan.FromSeconds(42), loaded.AuditionStartPosition);
@@ -97,10 +89,12 @@ internal static class SettingsTests
             TestAssert.Equal(245d, loaded.PlaylistLayout.ColumnWidths[PlaylistColumn.Artist]);
             TestAssert.Equal(PlaylistColumn.Energy, loaded.PlaylistLayout.SortColumn);
             TestAssert.Equal(PlaylistSortDirection.Descending, loaded.PlaylistLayout.SortDirection);
-            TestAssert.Equal(@"C:\Music\Album", loaded.PlaylistSession.FolderPath);
-            TestAssert.Equal(@"C:\Music\Album\02.wav", loaded.PlaylistSession.CurrentTrackPath);
-            TestAssert.Equal(2, loaded.PlaylistSession.PlaylistFiles.Count);
-            TestAssert.Equal(@"C:\Music\Album\02.wav", loaded.PlaylistSession.CompletedFiles.Single());
+            settings.AuditionStartPosition = TimeSpan.FromSeconds(55);
+            store.Save(settings);
+            TestAssert.Equal(true, File.Exists(path + ".bak"));
+            File.WriteAllText(path, """{ "AuditionStartPosition": """);
+            var recovered = store.Load();
+            TestAssert.Equal(TimeSpan.FromSeconds(42), recovered.AuditionStartPosition);
         }
         finally
         {

@@ -23,12 +23,16 @@ namespace QuickPlay.WinUI;
 
 public sealed partial class MainWindow : Window
 {
+    private const int WaveformPreviewPeakCount = 75;
+    private const int WaveformDetailedPeakCount = 300;
     private readonly TrackCatalog _catalog = new();
     private readonly PlaybackQueue _queue = new();
     private readonly FolderNavigator _folderNavigator = new();
     private readonly ITrackMetadataReader _metadataReader = new TagLibTrackMetadataReader();
     private readonly ISettingsStore _settingsStore;
     private readonly ApplicationSettings _settings;
+    private readonly PlaylistState _startupPlaylist;
+    private readonly PlaylistSaveCoordinator _playlistSaveCoordinator;
     private readonly ShortcutManager _shortcutManager;
     private readonly ClipboardFileService _clipboardService = new();
     private readonly ShellFileService _shellFileService = new();
@@ -41,10 +45,13 @@ public sealed partial class MainWindow : Window
     private readonly IWaveformAnalyzer _waveformAnalyzer = new BassWaveformAnalyzer();
     private readonly DispatcherTimer _positionTimer = new() { Interval = TimeSpan.FromMilliseconds(200) };
     private readonly Dictionary<Track, TrackListItemViewModel> _itemsByTrack = [];
+    private readonly Dictionary<Track, WaveformData> _waveformCache = [];
     private readonly Dictionary<PlaylistColumn, FrameworkElement> _playlistHeaderContainers = [];
     private readonly Dictionary<PlaylistColumn, Button> _playlistHeaderButtons = [];
     private CancellationTokenSource? _waveformCancellation;
+    private CancellationTokenSource? _waveformPreloadCancellation;
     private CancellationTokenSource? _metadataCancellation;
+    private Task _waveformPreloadTask = Task.CompletedTask;
     private WaveformData? _waveform;
     private Line? _playheadLine;
     // This is always the explicitly opened folder, never a recursively discovered subfolder.
@@ -60,10 +67,13 @@ public sealed partial class MainWindow : Window
     private bool _playlistReadyForNavigation;
     private bool _naturalEndHandled;
     private bool _pausedByUser;
+    private bool _priorityWaveformAnalysisInProgress;
     private bool _updateCheckInProgress;
     private TimeSpan _lastObservedPlaybackPosition;
     private bool _exitConfirmed;
     private bool _exitConfirmationOpen;
+    private int _playlistSaveOverlayUsers;
+    private DateTimeOffset _playlistSaveOverlayShownAt;
 
     public ObservableCollection<TrackListItemViewModel> Tracks { get; } = [];
 
@@ -76,11 +86,15 @@ public sealed partial class MainWindow : Window
         RootGrid.AddHandler(UIElement.PreviewKeyDownEvent, new KeyEventHandler(OnKeyDown), true);
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var settingsPath = System.IO.Path.Combine(localAppData, "QuickPlay", "settings.json");
+        var playlistPath = System.IO.Path.Combine(localAppData, "QuickPlay", "playlist.json");
         MigrateLegacySettings(
             System.IO.Path.Combine(localAppData, "DJPlayer", "settings.json"),
             settingsPath);
         _settingsStore = new JsonSettingsStore(settingsPath);
         _settings = _settingsStore.Load();
+        var playlistStore = new JsonPlaylistStore(playlistPath, settingsPath);
+        _startupPlaylist = playlistStore.Load();
+        _playlistSaveCoordinator = new PlaylistSaveCoordinator(playlistStore, _startupPlaylist);
         _shortcutManager = new ShortcutManager(_settings);
         _updateService = new GitHubUpdateService(_updateHttpClient);
         _player = new AudioPlayer(new BassAudioBackend());
@@ -114,14 +128,19 @@ public sealed partial class MainWindow : Window
 
     private async Task RestoreSavedPlaylistAsync()
     {
-        var session = _settings.PlaylistSession;
+        var session = _startupPlaylist;
         if (!session.HasSavedPlaylist) return;
 
-        var folderPath = session.FolderPath!;
-        var savedCount = session.PlaylistFiles.Count;
+        var folderPath = session.RootFolder!;
+        var savedFiles = session.Tracks.Select(track => track.Path).ToArray();
+        var completedFiles = session.Tracks
+            .Where(track => track.Played)
+            .Select(track => track.Path)
+            .ToArray();
+        var savedCount = savedFiles.Length;
         if (!Directory.Exists(folderPath))
         {
-            var missingRootFailures = session.PlaylistFiles
+            var missingRootFailures = savedFiles
                 .Select(path => new PlaylistRestoreFailure(path, "The restore root folder does not exist."))
                 .ToArray();
             ResetToDefaultState();
@@ -132,14 +151,14 @@ public sealed partial class MainWindow : Window
         var loadedCount = await OpenFolderAsync(
             folderPath,
             autoPlay: false,
-            session.PlaylistFiles,
-            session.CurrentTrackPath,
-            session.CompletedFiles);
+            savedFiles,
+            session.CurrentTrack,
+            completedFiles);
         var missingCount = Math.Max(0, savedCount - loadedCount);
         var restoredPaths = _itemsByTrack.Keys
             .Select(track => track.FilePath)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var failures = session.PlaylistFiles
+        var failures = savedFiles
             .Where(path => !restoredPaths.Contains(path))
             .Select(path => new PlaylistRestoreFailure(
                 path,
@@ -207,13 +226,14 @@ public sealed partial class MainWindow : Window
 
     private void ResetToDefaultState()
     {
+        CancelWaveformPreload(clearCache: true);
+        _waveformCancellation?.Cancel();
         _player.Stop();
         _currentFolderPath = null;
         _itemsByTrack.Clear();
         _queue.SetTracks([]);
         _playlistReadyForNavigation = true;
         _naturalEndHandled = true;
-        _settings.PlaylistSession.Clear();
         _settings.PlaylistLayout.ResetColumns();
         _settings.PlaylistLayout.ColumnWidths = PlaylistLayoutSettings.CreateDefaultWidths();
         ApplyPlaylistLayout(reorderQueue: false);
@@ -224,6 +244,7 @@ public sealed partial class MainWindow : Window
         ResetNowPlaying();
         UpdateTimeDisplay();
         StatusText.Text = "Ready. Drop a music folder anywhere in this window.";
+        SavePlaylistSession();
     }
 
     private async void OnChooseFolder(object sender, RoutedEventArgs e)
@@ -309,6 +330,7 @@ public sealed partial class MainWindow : Window
         try
         {
             if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+            await MonitorPlaylistSaveAsync(QueuePlaylistSave());
             _exitConfirmed = true;
             Close();
         }
@@ -352,6 +374,7 @@ public sealed partial class MainWindow : Window
     {
         _metadataCancellation?.Cancel();
         _waveformCancellation?.Cancel();
+        CancelWaveformPreload(clearCache: true);
         _player.Stop();
         StopPlaybackClock();
         _currentPlayedTime = TimeSpan.Zero;
@@ -362,7 +385,6 @@ public sealed partial class MainWindow : Window
         _playlistReadyForNavigation = true;
         _naturalEndHandled = true;
         _pausedByUser = false;
-        _settings.PlaylistSession.Clear();
         CurrentFolderText.Text = "—";
         ToolTipService.SetToolTip(CurrentFolderText, null);
         _waveform = null;
@@ -370,8 +392,7 @@ public sealed partial class MainWindow : Window
         ResetNowPlaying();
         UpdateTimeDisplay();
         StatusText.Text = "Playlist cleared. No folder is open.";
-        try { _settingsStore.Save(_settings); }
-        catch (Exception exception) { StatusText.Text = $"Playlist cleared, but settings could not be saved: {exception.Message}"; }
+        SavePlaylistSession();
     }
 
     private void OnOpenCurrentFileInExplorer(object sender, RoutedEventArgs e)
@@ -483,6 +504,7 @@ public sealed partial class MainWindow : Window
             if (startPosition is null) return;
             RefreshVisibleQueue();
             PlayAndPresent(startPosition);
+            SavePlaylistSession();
         }
         catch (Exception exception)
         {
@@ -510,6 +532,7 @@ public sealed partial class MainWindow : Window
                 StatusText.Text = $"Marked {item.Track.DisplayName} as played.";
             }
             UpdatePlaybackStyles();
+            SavePlaylistSession();
         };
         var all = new MenuFlyoutItem { Text = "Mark All as Unplayed" };
         all.Click += (_, _) =>
@@ -517,6 +540,7 @@ public sealed partial class MainWindow : Window
             _queue.MarkAllUnplayed();
             ResetPlaybackClock();
             UpdatePlaybackStyles();
+            SavePlaylistSession();
             StatusText.Text = "All tracks marked as unplayed.";
         };
         var menu = new MenuFlyout();
@@ -586,13 +610,10 @@ public sealed partial class MainWindow : Window
         titleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
         titleBar.ButtonForegroundColor = Colors.White;
         titleBar.ButtonInactiveForegroundColor = Colors.Gray;
-        AppWindow.Changed += (_, _) => UpdateTitleBarLayout();
-        UpdateTitleBarLayout();
-    }
 
-    private void UpdateTitleBarLayout()
-    {
-        var titleBar = AppWindow.TitleBar;
+        // Do not update XAML from AppWindow.Changed while Windows is switching
+        // presenter state. In particular, minimize can briefly make title-bar
+        // metrics unavailable and cause a COM failure in unpackaged WinUI apps.
         CustomTitleBar.Height = titleBar.Height;
         TitleBarRightInsetColumn.Width = new GridLength(titleBar.RightInset);
     }
@@ -712,18 +733,62 @@ public sealed partial class MainWindow : Window
 
         _waveformCancellation?.Cancel();
         _waveformCancellation?.Dispose();
-        _waveformCancellation = new CancellationTokenSource();
+        _waveformCancellation = null;
+        CancelWaveformPreload(clearCache: false);
+        _waveform = null;
+        DrawWaveform();
+        CancellationTokenSource? priorityCancellation = null;
+
         try
         {
-            var waveform = await _waveformAnalyzer.AnalyzeAsync(track.FilePath, 300, _waveformCancellation.Token);
+            try { await _waveformPreloadTask; }
+            catch (Exception) { }
             if (!ReferenceEquals(track, _queue.Current)) return;
+
+            if (_waveformCache.TryGetValue(track, out var cachedWaveform))
+            {
+                _waveform = cachedWaveform;
+                DrawWaveform();
+                RestartWaveformPreload();
+                return;
+            }
+
+            var waveformCancellation = new CancellationTokenSource();
+            priorityCancellation = waveformCancellation;
+            _waveformCancellation = waveformCancellation;
+            _priorityWaveformAnalysisInProgress = true;
+            var waveform = await _waveformAnalyzer.AnalyzeAsync(
+                track.FilePath,
+                WaveformPreviewPeakCount,
+                waveformCancellation.Token);
+            if (waveformCancellation.IsCancellationRequested ||
+                !ReferenceEquals(track, _queue.Current)) return;
             _waveform = waveform;
+            DrawWaveform();
+
+            waveform = await _waveformAnalyzer.AnalyzeAsync(
+                track.FilePath,
+                WaveformDetailedPeakCount,
+                waveformCancellation.Token);
+            if (waveformCancellation.IsCancellationRequested ||
+                !ReferenceEquals(track, _queue.Current)) return;
+            _waveform = waveform;
+            _waveformCache[track] = waveform;
             DrawWaveform();
         }
         catch (OperationCanceledException) { }
         catch (Exception exception)
         {
             StatusText.Text = $"Playback started; waveform unavailable: {exception.Message}";
+        }
+        finally
+        {
+            if (priorityCancellation is not null &&
+                ReferenceEquals(_waveformCancellation, priorityCancellation))
+            {
+                _priorityWaveformAnalysisInProgress = false;
+                RestartWaveformPreload();
+            }
         }
     }
 
@@ -789,10 +854,11 @@ public sealed partial class MainWindow : Window
         IReadOnlyList<string>? savedCompletedFiles = null,
         TimeSpan? autoPlayStartPosition = null)
     {
-        ContentDialog? loadingDialog = null;
-        Task? loadingDialogTask = null;
+        var showLoadingOverlay = false;
         try
         {
+            CancelWaveformPreload(clearCache: true);
+            _waveformCancellation?.Cancel();
             _player.Stop();
             _playlistReadyForNavigation = false;
             _naturalEndHandled = true;
@@ -838,6 +904,7 @@ public sealed partial class MainWindow : Window
                 : tracks.Where(track => savedCompletedFiles.Contains(track.FilePath, StringComparer.OrdinalIgnoreCase));
             _queue.SetTracks(orderedTracks, restoredCurrent, completedTracks);
             RefreshVisibleQueue();
+            SavePlaylistSession();
             if (tracks.Count == 0)
             {
                 _playlistReadyForNavigation = true;
@@ -845,35 +912,14 @@ public sealed partial class MainWindow : Window
                 StatusText.Text = "No supported audio files were found in that folder.";
                 return 0;
             }
-            TextBlock? loadingText = null;
-            ProgressBar? loadingProgress = null;
             if (FolderLoadingPolicy.ShouldShowProgress(tracks.Count))
             {
-                loadingText = new TextBlock
-                {
-                    Text = $"Loading track 0 of {tracks.Count}",
-                    TextWrapping = TextWrapping.Wrap
-                };
-                loadingProgress = new ProgressBar
-                {
-                    Minimum = 0,
-                    Maximum = tracks.Count,
-                    Value = 0,
-                    IsIndeterminate = false,
-                    Width = 420
-                };
-                loadingDialog = new ContentDialog
-                {
-                    XamlRoot = RootGrid.XamlRoot,
-                    Title = "Loading tracks...",
-                    Content = new StackPanel
-                    {
-                        Spacing = 12,
-                        Children = { loadingText, loadingProgress }
-                    }
-                };
+                showLoadingOverlay = true;
+                FolderLoadingText.Text = $"Loading track 0 of {tracks.Count}";
+                FolderLoadingProgress.Maximum = tracks.Count;
+                FolderLoadingProgress.Value = 0;
+                FolderLoadingOverlay.Visibility = Visibility.Visible;
                 _dialogOpen = true;
-                loadingDialogTask = ShowDialogUntilHiddenAsync(loadingDialog);
                 await Task.Yield();
             }
             StatusText.Text = $"{tracks.Count} tracks found. Loading metadata…";
@@ -889,8 +935,9 @@ public sealed partial class MainWindow : Window
                 autoPlayStartPosition,
                 completed =>
                 {
-                    if (loadingText is not null) loadingText.Text = $"Loading track {completed} of {tracks.Count}";
-                    if (loadingProgress is not null) loadingProgress.Value = completed;
+                    if (!showLoadingOverlay) return;
+                    FolderLoadingText.Text = $"Loading track {completed} of {tracks.Count}";
+                    FolderLoadingProgress.Value = completed;
                 });
             return tracks.Count;
         }
@@ -901,14 +948,9 @@ public sealed partial class MainWindow : Window
         }
         finally
         {
-            if (loadingDialog is not null)
+            if (showLoadingOverlay)
             {
-                loadingDialog.Hide();
-                if (loadingDialogTask is not null)
-                {
-                    try { await loadingDialogTask; }
-                    catch (Exception) { }
-                }
+                FolderLoadingOverlay.Visibility = Visibility.Collapsed;
                 _dialogOpen = false;
                 FocusPlaybackSurface();
             }
@@ -1189,6 +1231,7 @@ public sealed partial class MainWindow : Window
         _queue.RemoveCurrent();
         _itemsByTrack.Remove(track);
         RefreshVisibleQueue();
+        SavePlaylistSession();
         if (_queue.Current is null)
         {
             _waveform = null;
@@ -1285,6 +1328,7 @@ public sealed partial class MainWindow : Window
             {
                 RefreshVisibleQueue();
                 PlayAndPresent(startPosition);
+                SavePlaylistSession();
                 return;
             }
 
@@ -1332,6 +1376,7 @@ public sealed partial class MainWindow : Window
         StopPlaybackClock();
         _queue.MarkCurrentCompleted();
         UpdatePlaybackStyles();
+        SavePlaylistSession();
 
         if (action == NaturalPlaybackEndAction.Stop)
         {
@@ -1351,6 +1396,7 @@ public sealed partial class MainWindow : Window
             {
                 RefreshVisibleQueue();
                 PlayAndPresent(startPosition);
+                SavePlaylistSession();
                 return;
             }
 
@@ -1394,6 +1440,7 @@ public sealed partial class MainWindow : Window
             }
             RefreshVisibleQueue();
             PlayAndPresent(startPosition);
+            SavePlaylistSession();
         }
         catch (Exception exception)
         {
@@ -1453,6 +1500,7 @@ public sealed partial class MainWindow : Window
             !PlayedTrackPolicy.ShouldMarkCompleted(_settings, CurrentPlayedTime)) return;
         _queue.MarkCurrentCompleted();
         UpdatePlaybackStyles();
+        SavePlaylistSession();
     }
 
     private TimeSpan CurrentPlayedTime => _currentPlayedTime +
@@ -1503,6 +1551,61 @@ public sealed partial class MainWindow : Window
             .ToArray();
         _queue.ReorderTracks(ordered);
         RefreshVisibleQueue();
+        SavePlaylistSession();
+        RestartWaveformPreload();
+    }
+
+    private void RestartWaveformPreload()
+    {
+        CancelWaveformPreload(clearCache: false);
+        if (_priorityWaveformAnalysisInProgress || _queue.Tracks.Count == 0) return;
+
+        var tracks = _queue.Tracks.ToArray();
+        var previousTask = _waveformPreloadTask;
+        var cancellation = new CancellationTokenSource();
+        _waveformPreloadCancellation = cancellation;
+        _waveformPreloadTask = PreloadWaveformsAsync(previousTask, tracks, cancellation.Token);
+    }
+
+    private async Task PreloadWaveformsAsync(
+        Task previousTask,
+        IReadOnlyList<Track> tracks,
+        CancellationToken cancellationToken)
+    {
+        try { await previousTask; }
+        catch (Exception) { }
+        if (cancellationToken.IsCancellationRequested) return;
+
+        foreach (var track in tracks)
+        {
+            if (cancellationToken.IsCancellationRequested) return;
+            if (_waveformCache.ContainsKey(track)) continue;
+            try
+            {
+                var waveform = await _waveformAnalyzer.AnalyzeAsync(
+                    track.FilePath,
+                    WaveformDetailedPeakCount,
+                    cancellationToken);
+                if (cancellationToken.IsCancellationRequested) return;
+                if (waveform.Peaks.Count > 0) _waveformCache[track] = waveform;
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception)
+            {
+                // A single unreadable file must not stop the rest of the preload queue.
+            }
+        }
+    }
+
+    private void CancelWaveformPreload(bool clearCache)
+    {
+        _waveformPreloadCancellation?.Cancel();
+        _waveformPreloadCancellation?.Dispose();
+        _waveformPreloadCancellation = null;
+        if (clearCache) _waveformCache.Clear();
     }
 
     private void RefreshVisibleQueue()
@@ -1785,41 +1888,72 @@ public sealed partial class MainWindow : Window
 
     private void OnClosed(object sender, WindowEventArgs args)
     {
-        SavePlaylistSession();
         _positionTimer.Stop();
         _metadataCancellation?.Cancel();
         _metadataCancellation?.Dispose();
         _waveformCancellation?.Cancel();
         _waveformCancellation?.Dispose();
+        CancelWaveformPreload(clearCache: true);
         _updateHttpClient.Dispose();
         _player.Dispose();
     }
 
-    private void SavePlaylistSession()
+    private void SavePlaylistSession() =>
+        _ = MonitorPlaylistSaveAsync(QueuePlaylistSave());
+
+    private Task QueuePlaylistSave() =>
+        _playlistSaveCoordinator.QueueSave(CapturePlaylistState());
+
+    private PlaylistState CapturePlaylistState()
     {
+        var playlist = new PlaylistState();
+        var tracks = _queue.Tracks;
+        if (string.IsNullOrWhiteSpace(_currentFolderPath) || tracks.Count == 0)
+            return playlist;
+
+        playlist.RootFolder = _currentFolderPath;
+        playlist.CurrentTrack = _queue.Current?.FilePath;
+        playlist.Tracks = tracks
+            .Select(track => new PlaylistTrackState
+            {
+                Path = track.FilePath,
+                Played = _queue.IsCompleted(track)
+            })
+            .ToList();
+        return playlist;
+    }
+
+    private async Task MonitorPlaylistSaveAsync(Task saveTask)
+    {
+        var showedOverlay = false;
         try
         {
-            var playlistTracks = _queue.Tracks;
-            if (string.IsNullOrWhiteSpace(_currentFolderPath) || playlistTracks.Count == 0)
+            if (await Task.WhenAny(saveTask, Task.Delay(300)) != saveTask)
             {
-                _settings.PlaylistSession.Clear();
+                showedOverlay = true;
+                if (_playlistSaveOverlayUsers++ == 0)
+                {
+                    _playlistSaveOverlayShownAt = DateTimeOffset.UtcNow;
+                    PlaylistSavingOverlay.Visibility = Visibility.Visible;
+                }
             }
-            else
-            {
-                _settings.PlaylistSession.FolderPath = _currentFolderPath;
-                _settings.PlaylistSession.CurrentTrackPath = _queue.Current?.FilePath;
-                _settings.PlaylistSession.PlaylistFiles = playlistTracks
-                    .Select(track => track.FilePath)
-                    .ToList();
-                _settings.PlaylistSession.CompletedFiles = _queue.Completed
-                    .Select(track => track.FilePath)
-                    .ToList();
-            }
-            _settingsStore.Save(_settings);
+
+            await saveTask;
         }
-        catch (Exception)
+        catch (Exception exception)
         {
-            // The window is already closing, so there is no safe surface for an error dialog.
+            StatusText.Text = $"Could not save playlist: {exception.GetBaseException().Message}";
+        }
+        finally
+        {
+            if (showedOverlay && --_playlistSaveOverlayUsers == 0)
+            {
+                var visibleFor = DateTimeOffset.UtcNow - _playlistSaveOverlayShownAt;
+                var remaining = TimeSpan.FromMilliseconds(400) - visibleFor;
+                if (remaining > TimeSpan.Zero) await Task.Delay(remaining);
+                if (_playlistSaveOverlayUsers == 0)
+                    PlaylistSavingOverlay.Visibility = Visibility.Collapsed;
+            }
         }
     }
 

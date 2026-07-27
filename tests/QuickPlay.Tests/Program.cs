@@ -16,6 +16,7 @@ internal static class Program
             (nameof(NaturalPlaybackEndPolicyTests), NaturalPlaybackEndPolicyTests.Run),
             (nameof(ContinuePlaybackPolicyTests), ContinuePlaybackPolicyTests.Run),
             (nameof(SettingsTests), SettingsTests.Run),
+            (nameof(PlaylistStoreTests), PlaylistStoreTests.Run),
             (nameof(TrackCatalogTests), TrackCatalogTests.Run),
             (nameof(PlaylistRestoreLogTests), PlaylistRestoreLogTests.Run),
             (nameof(ExplorerFileSelectorTests), ExplorerFileSelectorTests.Run),

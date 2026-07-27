@@ -255,5 +255,58 @@
 
         <TextBlock x:Name="StatusText" Grid.Row="4" Foreground="#B8B8B8" Text="Ready. Drop a music folder anywhere in this window." />
         </Grid>
+
+        <Grid
+            x:Name="FolderLoadingOverlay"
+            Background="#80000000"
+            IsHitTestVisible="True"
+            Visibility="Collapsed">
+            <Border
+                Width="480"
+                Padding="24,18"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Background="#2B2B2B"
+                BorderBrush="#505050"
+                BorderThickness="1"
+                CornerRadius="8">
+                <StackPanel Spacing="12">
+                    <TextBlock
+                        FontSize="18"
+                        FontWeight="SemiBold"
+                        Text="Loading tracks…" />
+                    <TextBlock
+                        x:Name="FolderLoadingText"
+                        Text="Loading track 0 of 0" />
+                    <ProgressBar
+                        x:Name="FolderLoadingProgress"
+                        Minimum="0"
+                        Value="0" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <Grid
+            x:Name="PlaylistSavingOverlay"
+            Background="#80000000"
+            IsHitTestVisible="True"
+            Visibility="Collapsed">
+            <Border
+                Padding="24,18"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Background="#2B2B2B"
+                BorderBrush="#505050"
+                BorderThickness="1"
+                CornerRadius="8">
+                <StackPanel Orientation="Horizontal" Spacing="14">
+                    <ProgressRing Width="24" Height="24" IsActive="True" />
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        FontSize="16"
+                        Text="Saving playlist, please wait…" />
+                </StackPanel>
+            </Border>
+        </Grid>
     </Grid>
 </Window>

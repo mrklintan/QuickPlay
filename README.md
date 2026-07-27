@@ -33,7 +33,7 @@ The project is published openly as both a useful audio tool and a practical exam
 
 - Configurable audition start position, defaulting to `01:00`.
 - Immediate playback when moving between tracks or sibling folders.
-- Clickable waveform seeking and current/total time display.
+- Fast two-stage waveform rendering: a 75-point preview appears first and is then refined to 300 points, with clickable seeking and current/total time display. Remaining playlist waveforms are cached automatically in the current user-selected sort order; active playback always takes priority.
 - Metadata display for artist, title, BPM, musical key, Mixed In Key Energy, and duration, including AIFF/AIF support.
 - Optional Disc Number and Track Number columns with multi-disc-aware sorting.
 - Playback and waveform analysis for audio files stored at Windows paths that are 260 characters or longer.
@@ -158,7 +158,7 @@ Artist and Title are always the first two playlist columns. Use **Settings → P
 
 All newly loaded tracks start in bold text, meaning that they are waiting to be played. The active track stays pinned at the top and is always italic. After the configured playback time it becomes played and changes to normal weight while remaining italic. When moving on, the previous track is appended to the end without re-sorting; if **Remove played tracks from playlist** is enabled and that track is played, its row is removed instead. The audio file remains untouched. Up and Down search in their respective direction for the next bold track and skip normal tracks. A normal track can still be replayed by clicking it directly. Right-click a row to use **Mark as Played** or **Mark as Unplayed**, depending on its current status. **Mark All as Unplayed** is always available. Explicit column sorting pins the active track and sorts the remaining rows.
 
-QuickPlay saves the current folder, active row, and remaining playlist during a normal shutdown. On the next launch it restores the playlist without autoplay. Missing files are reported and a detailed log is written under `%TEMP%\QuickPlay`; if the folder is unavailable or no saved tracks can be loaded, QuickPlay continues with an empty playlist and the default column layout.
+QuickPlay stores application preferences in `%LOCALAPPDATA%\QuickPlay\settings.json` and the current folder, active row, remaining tracks, and played status separately in `%LOCALAPPDATA%\QuickPlay\playlist.json`. Playlist state is saved in the background only when it changes, using atomic replacement and backup files to protect against interrupted writes. If a save takes unusually long, a temporary **Saving playlist, please wait…** overlay appears and closes automatically. On the next launch QuickPlay restores the playlist without autoplay. Missing files are reported and a detailed log is written under `%TEMP%\QuickPlay`; if the folder is unavailable or no saved tracks can be loaded, QuickPlay continues with an empty playlist and the default column layout.
 
 ## Known issue
 

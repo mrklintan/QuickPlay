@@ -67,7 +67,6 @@ public sealed class ApplicationSettings
 
     public Dictionary<ApplicationCommand, ShortcutGesture> Shortcuts { get; set; } = ShortcutDefaults.Create();
     public PlaylistLayoutSettings PlaylistLayout { get; set; } = new();
-    public PlaylistSessionSettings PlaylistSession { get; set; } = new();
 
     public void EnsureDefaults()
     {
@@ -76,7 +75,5 @@ public sealed class ApplicationSettings
             Shortcuts.TryAdd(assignment.Key, assignment.Value);
         PlaylistLayout ??= new PlaylistLayoutSettings();
         PlaylistLayout.EnsureValid();
-        PlaylistSession ??= new PlaylistSessionSettings();
-        PlaylistSession.EnsureValid();
     }
 }
