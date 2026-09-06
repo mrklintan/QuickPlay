@@ -36,3 +36,5 @@ DLL from an earlier package.
 
 4. Confirm that only one QuickPlay uninstall entry remains and that the EXE,
    Core, Audio, and Waveform file versions all match `QuickPlayReleaseVersion`.
+
+Use `-t:Rebuild` for the final MSI packaging pass. Incremental WiX builds can retain an old embedded LicenseAgreement.rtf even after that file changes. Verify the license heading in the MSI UI before publishing; the heading is intentionally version-independent.
