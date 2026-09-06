@@ -35,7 +35,10 @@ public sealed class TagLibTrackMetadataReader : ITrackMetadataReader
                 Grouping: grouping,
                 Duration: mediaFile.Properties.Duration,
                 FileName: fallback.FileName,
-                FullPath: filePath);
+                FullPath: filePath)
+            {
+                FileType = mediaFile.Properties.Description ?? string.Empty
+            };
         }
         catch (Exception exception) when (exception is TagLib.CorruptFileException or
                                                    TagLib.UnsupportedFormatException or

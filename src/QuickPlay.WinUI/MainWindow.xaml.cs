@@ -48,6 +48,7 @@ public sealed partial class MainWindow : Window
     private readonly Dictionary<Track, WaveformData> _waveformCache = [];
     private readonly Dictionary<PlaylistColumn, FrameworkElement> _playlistHeaderContainers = [];
     private readonly Dictionary<PlaylistColumn, Button> _playlistHeaderButtons = [];
+    private Dictionary<PlaylistColumn, string> _playlistFilters => _settings.PlaylistLayout.Filters;
     private CancellationTokenSource? _waveformCancellation;
     private CancellationTokenSource? _waveformPreloadCancellation;
     private CancellationTokenSource? _metadataCancellation;
@@ -432,6 +433,7 @@ public sealed partial class MainWindow : Window
             VirtualKey.F => FileMenuItem,
             VirtualKey.P => PlayMenuItem,
             VirtualKey.A => ActionsMenuItem,
+            VirtualKey.V => ViewMenuItem,
             VirtualKey.S => SettingsMenuItem,
             VirtualKey.B => AboutMenuItem,
             _ => null
@@ -1616,9 +1618,11 @@ public sealed partial class MainWindow : Window
             Tracks.Clear();
             foreach (var track in _queue.VisibleTracks)
             {
-                if (_itemsByTrack.TryGetValue(track, out var item)) Tracks.Add(item);
+                if (_itemsByTrack.TryGetValue(track, out var item) &&
+                    PlaylistFilter.Matches(item.GetDisplayText, _playlistFilters)) Tracks.Add(item);
             }
-            TrackList.SelectedItem = _queue.Current is not null ? FindItem(_queue.Current) : null;
+            var currentItem = _queue.Current is not null ? FindItem(_queue.Current) : null;
+            TrackList.SelectedItem = currentItem is not null && Tracks.Contains(currentItem) ? currentItem : null;
             if (TrackList.SelectedItem is not null) TrackList.ScrollIntoView(TrackList.SelectedItem);
         }
         finally
@@ -1639,6 +1643,8 @@ public sealed partial class MainWindow : Window
 
     private void BuildPlaylistHeaders()
     {
+        foreach (var column in _playlistFilters.Keys.Except(_settings.PlaylistLayout.Columns).ToArray())
+            _playlistFilters.Remove(column);
         PlaylistHeaderPanel.Children.Clear();
         _playlistHeaderContainers.Clear();
         _playlistHeaderButtons.Clear();
@@ -1648,9 +1654,11 @@ public sealed partial class MainWindow : Window
             var container = new Grid
             {
                 Width = width,
-                Height = 36,
+                Height = _settings.PlaylistLayout.ShowFilters ? 76 : 36,
                 Background = new SolidColorBrush(ColorHelper.FromArgb(255, 41, 41, 41))
             };
+            container.RowDefinitions.Add(new RowDefinition { Height = new GridLength(36) });
+            container.RowDefinitions.Add(new RowDefinition { Height = new GridLength(_settings.PlaylistLayout.ShowFilters ? 40 : 0) });
             var button = new Button
             {
                 Tag = column,
@@ -1666,6 +1674,30 @@ public sealed partial class MainWindow : Window
             button.Click += OnPlaylistHeaderClick;
             container.Children.Add(button);
 
+            var filter = new TextBox
+            {
+                Tag = column,
+                Text = _playlistFilters.GetValueOrDefault(column, string.Empty),
+                PlaceholderText = "Filter...",
+                Visibility = _settings.PlaylistLayout.ShowFilters ? Visibility.Visible : Visibility.Collapsed,
+                MinWidth = 0,
+                Margin = new Thickness(4, 0, 8, 4),
+                Padding = new Thickness(4, 3, 4, 3),
+                FontSize = 12
+            };
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(
+                filter, $"Filter {PlaylistColumns.Get(column).DisplayName}");
+            ToolTipService.SetToolTip(filter, "Contains text (case-insensitive). Escape clears this filter.");
+            filter.TextChanged += OnPlaylistFilterChanged;
+            filter.KeyDown += (_, e) =>
+            {
+                if (e.Key != VirtualKey.Escape) return;
+                filter.Text = string.Empty;
+                e.Handled = true;
+            };
+            Grid.SetRow(filter, 1);
+            container.Children.Add(filter);
+
             var resizeHandle = new Thumb
             {
                 Tag = column,
@@ -1677,6 +1709,7 @@ public sealed partial class MainWindow : Window
             resizeHandle.DragStarted += OnColumnResizeStarted;
             resizeHandle.DragDelta += OnColumnResizeDelta;
             resizeHandle.DragCompleted += OnColumnResizeCompleted;
+            Grid.SetRowSpan(resizeHandle, 2);
             Canvas.SetZIndex(resizeHandle, 1);
             container.Children.Add(resizeHandle);
 
@@ -1686,6 +1719,7 @@ public sealed partial class MainWindow : Window
                 HorizontalAlignment = HorizontalAlignment.Right,
                 Background = new SolidColorBrush(ColorHelper.FromArgb(255, 82, 82, 82))
             };
+            Grid.SetRowSpan(divider, 2);
             container.Children.Add(divider);
 
             _playlistHeaderContainers[column] = container;
@@ -1693,7 +1727,83 @@ public sealed partial class MainWindow : Window
             PlaylistHeaderPanel.Children.Add(container);
         }
         UpdatePlaylistHeaderLabels();
+        UpdatePlaylistFilterControls();
         ApplyPlaylistWidthsToViewport();
+    }
+
+    private void OnShowFilterButtonMenuClick(object sender, RoutedEventArgs e)
+    {
+        _settings.PlaylistLayout.ShowFilterButton = ShowFilterButtonMenuItem.IsChecked;
+        if (!_settings.PlaylistLayout.ShowFilterButton)
+        {
+            _playlistFilters.Clear();
+            _settings.PlaylistLayout.ShowFilters = false;
+        }
+        BuildPlaylistHeaders();
+        RefreshVisibleQueue();
+        SavePlaylistLayout(_settings.PlaylistLayout.ShowFilterButton
+            ? "Filter button shown." : "Filter button hidden and filters cleared.");
+    }
+
+    private void OnShowFiltersMenuClick(object sender, RoutedEventArgs e)
+    {
+        SetPlaylistFiltersVisible(ShowFiltersMenuItem.IsChecked);
+    }
+
+    private void OnPlaylistFiltersToggleClick(object sender, RoutedEventArgs e)
+    {
+        SetPlaylistFiltersVisible(PlaylistFiltersToggle.IsChecked == true);
+    }
+
+    private void SetPlaylistFiltersVisible(bool visible)
+    {
+        _settings.PlaylistLayout.ShowFilters = visible && _settings.PlaylistLayout.ShowFilterButton;
+        BuildPlaylistHeaders();
+        SavePlaylistLayout(_settings.PlaylistLayout.ShowFilters ? "Filters shown." : "Filters hidden; active filters still apply.");
+    }
+
+    private void OnClearPlaylistFiltersClick(object sender, RoutedEventArgs e)
+    {
+        _playlistFilters.Clear();
+        BuildPlaylistHeaders();
+        RefreshVisibleQueue();
+        PlaylistFiltersToggle.Focus(FocusState.Programmatic);
+        SavePlaylistLayout("Filters cleared.");
+    }
+
+    private void UpdatePlaylistFilterControls()
+    {
+        var showButton = _settings.PlaylistLayout.ShowFilterButton;
+        ShowFilterButtonMenuItem.IsChecked = showButton;
+        ShowFiltersMenuItem.IsEnabled = showButton;
+        PlaylistFiltersToggle.Visibility = showButton ? Visibility.Visible : Visibility.Collapsed;
+        PlaylistFilterButtonColumn.Width = new GridLength(showButton ? 56 : 0);
+        TrackList.Margin = new Thickness(0, 0, showButton ? 56 : 0, 0);
+        PlaylistFiltersToggle.IsChecked = _settings.PlaylistLayout.ShowFilters;
+        ShowFiltersMenuItem.IsChecked = _settings.PlaylistLayout.ShowFilters;
+        PlaylistFiltersLabel.Text = _playlistFilters.Count == 0 ? string.Empty : _playlistFilters.Count.ToString();
+        PlaylistFiltersLabel.Visibility = _playlistFilters.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        ClearPlaylistFiltersMenuItem.IsEnabled = showButton && _playlistFilters.Count > 0;
+        PlaylistFiltersToggle.Foreground = (Brush)Application.Current.Resources[
+            _playlistFilters.Count > 0 ? "SystemControlHighlightAccentBrush" : "TextFillColorPrimaryBrush"];
+        var hint = _settings.PlaylistLayout.ShowFilters ? "Hide filter fields" : "Show filter fields";
+        if (_playlistFilters.Count > 0)
+            hint += "\nActive filters: " + string.Join("; ", _playlistFilters.Select(
+                pair => $"{PlaylistColumns.Get(pair.Key).DisplayName}: {pair.Value}"));
+        ToolTipService.SetToolTip(PlaylistFiltersToggle, hint);
+    }
+
+    private void OnPlaylistFilterChanged(object sender, TextChangedEventArgs e)
+    {
+        if (sender is not TextBox { Tag: PlaylistColumn column } filter ||
+            !_playlistHeaderContainers.TryGetValue(column, out var header) ||
+            !ReferenceEquals(filter.Parent, header)) return;
+        if (_playlistFilters.GetValueOrDefault(column, string.Empty) == filter.Text) return;
+        if (string.IsNullOrWhiteSpace(filter.Text)) _playlistFilters.Remove(column);
+        else _playlistFilters[column] = filter.Text;
+        SavePlaylistLayout("Filters saved.");
+        UpdatePlaylistFilterControls();
+        RefreshVisibleQueue();
     }
 
     private void UpdatePlaylistHeaderLabels()

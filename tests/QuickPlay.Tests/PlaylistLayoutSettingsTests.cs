@@ -6,6 +6,13 @@ internal static class PlaylistLayoutSettingsTests
 {
     public static void Run()
     {
+        var hiddenFilters = new PlaylistLayoutSettings { ShowFilterButton = false, ShowFilters = true };
+        hiddenFilters.EnsureValid();
+        TestAssert.Equal(false, hiddenFilters.ShowFilters);
+        hiddenFilters.ShowFilterButton = true;
+        hiddenFilters.EnsureValid();
+        TestAssert.Equal(false, hiddenFilters.ShowFilters);
+
         var layout = new PlaylistLayoutSettings();
         TestAssert.Equal("Artist,Title,Bpm,Key,Energy,Duration", string.Join(',', layout.Columns));
 

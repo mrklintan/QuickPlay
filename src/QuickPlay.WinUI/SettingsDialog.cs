@@ -98,7 +98,7 @@ public sealed class SettingsDialog
         _navigation.SelectionChanged += OnSelectionChanged;
 
         AddNavigationItem(SettingsCategory.Playback, "Playback");
-        AddNavigationItem(SettingsCategory.Playlist, "Playlist");
+        AddNavigationItem(SettingsCategory.Playlist, "Playlist columns");
         AddNavigationItem(SettingsCategory.Keyboard, "Keyboard");
         AddNavigationItem(SettingsCategory.Updates, "Updates");
     }

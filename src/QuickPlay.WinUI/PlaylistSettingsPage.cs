@@ -43,7 +43,7 @@ public sealed class PlaylistSettingsPage
     {
         var root = new StackPanel { MinWidth = 680, Spacing = 18 };
         root.Children.Add(PlaybackSettingsPage.CreateHeading(
-            "Playlist",
+            "Playlist columns",
             "Choose which metadata columns are visible and arrange their order."));
 
         var layout = new Grid { Width = 680, RowSpacing = 12, ColumnSpacing = 18 };

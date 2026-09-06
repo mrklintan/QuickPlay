@@ -28,6 +28,8 @@ internal static class SettingsTests
                 }
                 """);
             var migrated = store.Load();
+            TestAssert.Equal(true, migrated.PlaylistLayout.ShowFilters);
+            TestAssert.Equal(true, migrated.PlaylistLayout.ShowFilterButton);
             TestAssert.Equal(true, migrated.ContinuePlay);
             TestAssert.Equal(false, migrated.DjMode);
             TestAssert.Equal(TimeSpan.FromSeconds(30), migrated.ContinuePlayStartPosition);
@@ -60,6 +62,8 @@ internal static class SettingsTests
                 RemovePlayedTracks = true,
                 PlayedThresholdSeconds = 600
             };
+            settings.PlaylistLayout.ShowFilters = false;
+            settings.PlaylistLayout.ShowFilterButton = false;
             settings.Shortcuts[ApplicationCommand.PlayPause] = new ShortcutGesture(80);
             settings.Shortcuts[ApplicationCommand.SeekBackwardShort] = ShortcutGesture.Unassigned;
             settings.PlaylistLayout.Columns =
@@ -74,6 +78,20 @@ internal static class SettingsTests
             settings.PlaylistLayout.SortDirection = PlaylistSortDirection.Descending;
             store.Save(settings);
             var loaded = store.Load();
+            TestAssert.Equal(false, loaded.PlaylistLayout.ShowFilters);
+            TestAssert.Equal(false, loaded.PlaylistLayout.ShowFilterButton);
+            loaded.PlaylistLayout.ShowFilterButton = true;
+            loaded.PlaylistLayout.ShowFilters = false;
+            loaded.PlaylistLayout.Filters[PlaylistColumn.Artist] = "AbBa";
+            loaded.PlaylistLayout.Filters[PlaylistColumn.Title] = "dance";
+            store.Save(loaded);
+            var filtered = store.Load();
+            TestAssert.Equal(false, filtered.PlaylistLayout.ShowFilters);
+            TestAssert.Equal("AbBa", filtered.PlaylistLayout.Filters[PlaylistColumn.Artist]);
+            TestAssert.Equal("dance", filtered.PlaylistLayout.Filters[PlaylistColumn.Title]);
+            filtered.PlaylistLayout.ShowFilterButton = false;
+            store.Save(filtered);
+            TestAssert.Equal(0, store.Load().PlaylistLayout.Filters.Count);
             TestAssert.Equal(TimeSpan.FromSeconds(42), loaded.AuditionStartPosition);
             TestAssert.Equal(false, loaded.ContinuePlay);
             TestAssert.Equal(true, loaded.DjMode);

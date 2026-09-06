@@ -17,6 +17,8 @@ public sealed record TrackMetadata(
     string FileName,
     string FullPath)
 {
+    public string FileType { get; init; } = string.Empty;
+
     public static TrackMetadata FromFileName(string filePath) => new(
         Artist: string.Empty,
         Title: Path.GetFileNameWithoutExtension(filePath),

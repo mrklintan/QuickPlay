@@ -118,6 +118,11 @@
                 <MenuFlyoutItem AccessKey="E" Text="Open Current File in File Explorer" Click="OnOpenCurrentFileInExplorer" />
                 <MenuFlyoutItem x:Name="DeleteTrackMenuItem" Text="Move Current Track to Recycle Bin" Tag="DeleteCurrentTrack" Click="OnApplicationCommandMenuItemClick" />
             </MenuBarItem>
+            <MenuBarItem x:Name="ViewMenuItem" AccessKey="V" AccessKeyInvoked="OnTopLevelMenuAccessKeyInvoked" ExitDisplayModeOnAccessKeyInvoked="False" Title="View">
+                <ToggleMenuFlyoutItem x:Name="ShowFilterButtonMenuItem" Text="Show filter button" Click="OnShowFilterButtonMenuClick" />
+                <ToggleMenuFlyoutItem x:Name="ShowFiltersMenuItem" Text="Show filters" Click="OnShowFiltersMenuClick" />
+                <MenuFlyoutItem x:Name="ClearPlaylistFiltersMenuItem" Text="Clear filters" Click="OnClearPlaylistFiltersClick" />
+            </MenuBarItem>
             <MenuBarItem x:Name="SettingsMenuItem" AccessKey="S" AccessKeyInvoked="OnTopLevelMenuAccessKeyInvoked" ExitDisplayModeOnAccessKeyInvoked="False" Title="Settings">
                 <MenuFlyoutItem AccessKey="S" Text="Settings..." Click="OnGeneralSettings" />
                 <MenuFlyoutItem AccessKey="K" Text="Keyboard..." Click="OnShortcutSettings" />
@@ -202,19 +207,35 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
-            <ScrollViewer
-                x:Name="PlaylistHeaderScrollViewer"
-                Background="#292929"
-                HorizontalScrollBarVisibility="Hidden"
-                HorizontalScrollMode="Enabled"
-                SizeChanged="OnPlaylistViewportSizeChanged"
-                VerticalScrollBarVisibility="Disabled"
-                VerticalScrollMode="Disabled">
-                <StackPanel x:Name="PlaylistHeaderPanel" Background="#292929" Orientation="Horizontal" />
-            </ScrollViewer>
+            <Grid Background="#292929">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition x:Name="PlaylistFilterButtonColumn" Width="56" />
+                </Grid.ColumnDefinitions>
+                <ScrollViewer
+                    x:Name="PlaylistHeaderScrollViewer"
+                    HorizontalScrollBarVisibility="Hidden"
+                    HorizontalScrollMode="Enabled"
+                    SizeChanged="OnPlaylistViewportSizeChanged"
+                    VerticalScrollBarVisibility="Disabled"
+                    VerticalScrollMode="Disabled">
+                    <StackPanel x:Name="PlaylistHeaderPanel" Background="#292929" Orientation="Horizontal" />
+                </ScrollViewer>
+                <ToggleButton x:Name="PlaylistFiltersToggle" Grid.Column="1"
+                              Height="32" MinWidth="0" Margin="2" Padding="4,0"
+                              VerticalAlignment="Top" HorizontalAlignment="Stretch"
+                              Click="OnPlaylistFiltersToggleClick"
+                              AutomationProperties.Name="Show or hide column filters">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <FontIcon Glyph="&#xE71C;" FontSize="14" />
+                        <TextBlock x:Name="PlaylistFiltersLabel" FontSize="12" />
+                    </StackPanel>
+                </ToggleButton>
+            </Grid>
             <ListView
                 x:Name="TrackList"
                 Grid.Row="1"
+                Margin="0,0,56,0"
                 ContainerContentChanging="OnTrackContainerContentChanging"
                 ItemsSource="{x:Bind Tracks}"
                 Loaded="OnTrackListLoaded"

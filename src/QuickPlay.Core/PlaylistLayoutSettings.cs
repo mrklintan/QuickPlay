@@ -10,6 +10,10 @@ public sealed class PlaylistLayoutSettings
 {
     private const double MaximumColumnWidth = 1200;
 
+    public bool ShowFilterButton { get; set; } = true;
+    public bool ShowFilters { get; set; } = true;
+    public Dictionary<PlaylistColumn, string> Filters { get; set; } = [];
+
     public List<PlaylistColumn> Columns { get; set; } = [.. PlaylistColumns.DefaultOrder];
     public Dictionary<PlaylistColumn, double> ColumnWidths { get; set; } = CreateDefaultWidths();
     public PlaylistColumn SortColumn { get; set; } = PlaylistColumn.Artist;
@@ -17,10 +21,16 @@ public sealed class PlaylistLayoutSettings
 
     public void EnsureValid()
     {
+        if (!ShowFilterButton) ShowFilters = false;
+
         if (!HasValidColumnOrder(Columns))
             Columns = [.. PlaylistColumns.DefaultOrder];
         else
             Columns = [.. Columns.Distinct()];
+
+        Filters = (Filters ?? []).Where(pair => ShowFilterButton && Columns.Contains(pair.Key) &&
+                !string.IsNullOrWhiteSpace(pair.Value))
+            .ToDictionary(pair => pair.Key, pair => pair.Value);
 
         var savedWidths = ColumnWidths ?? [];
         ColumnWidths = PlaylistColumns.All.ToDictionary(

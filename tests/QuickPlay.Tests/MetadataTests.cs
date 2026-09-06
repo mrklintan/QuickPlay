@@ -9,6 +9,14 @@ internal static class MetadataTests
         var fallback = TrackMetadata.FromFileName(@"C:\Music\Artist - Title.aif");
         TestAssert.Equal("Artist - Title", fallback.Title);
         TestAssert.Equal("Artist - Title.aif", fallback.FileName);
+        TestAssert.Equal(string.Empty, fallback.FileType);
+        TestAssert.True(PlaylistColumns.IsOptional(PlaylistColumn.FileType));
+        var aiff = fallback with { FileType = "AIFF Audio" };
+        var mp3 = fallback with { FileType = "MPEG Version 1 Audio, Layer 3" };
+        TestAssert.True(new PlaylistSorter(PlaylistColumn.FileType, PlaylistSortDirection.Ascending).Compare(aiff, mp3) < 0);
+        TestAssert.True(new PlaylistSorter(PlaylistColumn.FileType, PlaylistSortDirection.Descending).Compare(aiff, mp3) > 0);
+        TestAssert.True(PlaylistFilter.Matches(_ => aiff.FileType,
+            new Dictionary<PlaylistColumn, string> { [PlaylistColumn.FileType] = "aiff" }));
         TestAssert.Equal(string.Empty, fallback.Energy);
         TestAssert.Equal(string.Empty, fallback.DiscNumber);
         TestAssert.Equal(string.Empty, fallback.TrackNumber);

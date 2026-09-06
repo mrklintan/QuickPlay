@@ -6,6 +6,7 @@ internal static class Program
     {
         var tests = new (string Name, Action Run)[]
         {
+            (nameof(PlaylistFilterTests), PlaylistFilterTests.Run),
             (nameof(AuditionPositionPolicyTests), AuditionPositionPolicyTests.Run),
             (nameof(BassFilePathTests), BassFilePathTests.Run),
             (nameof(PlaylistLayoutSettingsTests), PlaylistLayoutSettingsTests.Run),

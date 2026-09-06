@@ -25,6 +25,7 @@ public sealed class PlaylistSorter(
             PlaylistColumn.Grouping => CompareText(left.Grouping, right.Grouping),
             PlaylistColumn.Duration => CompareDuration(left.Duration, right.Duration),
             PlaylistColumn.FileName => CompareText(left.FileName, right.FileName),
+            PlaylistColumn.FileType => CompareText(left.FileType, right.FileType),
             PlaylistColumn.FullPath => CompareText(left.FullPath, right.FullPath),
             _ => 0
         };

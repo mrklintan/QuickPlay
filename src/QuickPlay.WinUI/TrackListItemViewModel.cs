@@ -90,6 +90,7 @@ public sealed class TrackListItemViewModel : INotifyPropertyChanged
         PlaylistColumn.Grouping => Metadata.Grouping ?? string.Empty,
         PlaylistColumn.Duration => Metadata.Duration > TimeSpan.Zero ? FormatDuration(Metadata.Duration) : string.Empty,
         PlaylistColumn.FileName => Metadata.FileName ?? string.Empty,
+        PlaylistColumn.FileType => Metadata.FileType,
         PlaylistColumn.FullPath => Metadata.FullPath ?? string.Empty,
         _ => string.Empty
     };
